@@ -1,0 +1,23 @@
+psutil>=5.9.8
+pywin32>=306; sys_platform == 'win32'
+ruamel.yaml>=0.18.6
+pandas>=2.2.0
+numpy>=1.26.3
+scikit-learn>=1.4.0
+scipy>=1.10.0
+
+# Tray icon + background presence
+pystray>=0.19.5
+Pillow>=10.2.0
+
+# Interactive Windows toast notifications
+windows-toasts>=1.1.1
+
+# Filesystem watching for Downloads/Desktop/Temp/Startup
+watchdog>=4.0.0
+
+# Testing
+pytest>=8.0.0
+
+# Optional Windows packaging
+pyinstaller>=6.0.0

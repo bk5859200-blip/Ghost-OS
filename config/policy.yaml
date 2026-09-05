@@ -1,0 +1,67 @@
+# Ghost OS Configuration
+# Validated at startup by src/core/config_loader.py — an invalid value here
+# fails startup loudly rather than silently falling back to a guess.
+
+ghost:
+  startup: true               # register/keep Ghost registered for Windows autostart
+
+monitoring:
+  system_interval_seconds: 2       # CPU/RAM/disk/network polling interval
+  process_interval_seconds: 5      # process snapshot interval (event-driven diffing between snapshots)
+  db_cleanup_days: 7               # telemetry retention
+
+thresholds:
+  cpu:
+    critical_percent: 92.0
+    consecutive_ticks: 3
+  memory:
+    critical_percent: 95.0
+  disk:
+    warning_percent: 90.0
+
+notifications:
+  enabled: true
+  cooldown_seconds: 120        # minimum gap between two notifications of the same kind
+  aggregate_window_seconds: 300 # repeated same-signal events within this window are grouped into one notification
+
+watch_folders:
+  - "%USERPROFILE%\\Downloads"
+  - "%USERPROFILE%\\Desktop"
+  - "%TEMP%"
+
+cleanup:
+  enabled: true
+  require_confirmation: true   # if true, cleanup is proposed via notification, not run silently
+  stale_installer_days: 30
+  stale_temp_days: 14
+
+security:
+  behavioral_monitoring: true
+  # Ghost will never terminate/deprioritize/quarantine anything in this list,
+  # regardless of resource usage or rule hits.
+  protected_processes:
+    - "explorer.exe"
+    - "winlogon.exe"
+    - "csrss.exe"
+    - "wininit.exe"
+    - "services.exe"
+    - "lsass.exe"
+    - "smss.exe"
+    - "MsMpEng.exe"        # Windows Defender
+    - "SecurityHealthService.exe"
+    - "python.exe"
+    - "pythonw.exe"
+    - "cmd.exe"
+    - "powershell.exe"
+  protected_paths:
+    - "C:\\Windows"
+    - "C:\\Program Files"
+    - "C:\\Program Files (x86)"
+
+automation:
+  enabled: true
+  auto_trim_memory: false
+  auto_lower_priority: true
+
+safety:
+  dry_run: true          # DEFAULT ON. Flip to false only once you've watched a few dry-run cycles.

@@ -1,6 +1,6 @@
 <div align="center">
 
-# 👻 Ghost OS
+#  Ghost OS
 
 **A local-first Windows background guardian for system, file, and process monitoring.**
 
@@ -72,19 +72,19 @@ File/Process Event → Rule Engine (risk scoring) → Windows Defender (real mal
 - **Decision Engine** — maps severity (`LOW`/`MEDIUM`/`HIGH`/`CRITICAL`) to an outcome (`IGNORE`/`LOG`/`NOTIFY`/`ASK_USER`)
 - **Safety Engine** — the final gate: protected process/path lists, dry-run mode, path-traversal validation — nothing destructive happens without clearing this first
 
-### 🔒 Quarantine, Not Deletion
+###  Quarantine, Not Deletion
 Flagged files are isolated into a local vault with SHA-256 integrity verification, fully restorable if a detection turns out to be a false positive.
 
-### 🔔 Ask-First Notifications
+###  Ask-First Notifications
 Every real detection surfaces as a native Windows Action Center toast with **Quarantine / Leave it alone / View details** buttons. Nothing is auto-deleted. Notifications are cooldown-limited and aggregated so you're never spammed with repeats of the same signal.
 
-### 🧹 Safe System Cleanup
+###  Safe System Cleanup
 Discover → preview → notify → execute → verify → log. Cleanup only ever touches known-disposable cache locations (Temp), never your personal files, and respects the same Safety Engine gate as everything else.
 
-### 🖼️ Native Control Center
+###  Native Control Center
 A real Tkinter window (not a browser tab) for the moments you do want detail: live system status, Quick Scan with progress, Quarantine management with restore, Activity History, Policy Settings, and Diagnostics. Ghost OS is designed so you rarely need to open it.
 
-### 🚀 Background-First
+###  Background-First
 - Autostarts at login (unprivileged by default, least-privilege)
 - System tray presence, same shelf as Windows Security / other background guardians
 - Single-instance protected — a duplicate launch exits cleanly instead of running two guardians
@@ -327,6 +327,6 @@ This project is currently under active development. License terms will be finali
 
 *Ghost OS — a quiet system guardian, not a chatbot.*
 
-[Report an issue](https://github.com/bk5859200-blip/Ghost-OS/issues) · Author: [Bhargav](https://github.com/bk5859200-blip)
+[Report an issue](https://github.com/bk5859200-blip/Ghost-OS/issues) · Author: [Bhargava Krishna](https://github.com/bk5859200-blip)
 
 </div>

@@ -6,6 +6,13 @@ import threading
 logger = logging.getLogger("ghost.actions.scan_job")
 
 
+STATE_PENDING = "PENDING"
+STATE_RUNNING = "RUNNING"
+STATE_COMPLETED = "COMPLETED"
+STATE_FAILED = "FAILED"
+STATE_CANCELLED = "CANCELLED"
+
+
 class ManualScanJob:
     """
     Finite manual scan job for Ghost OS watch folders.
@@ -14,6 +21,7 @@ class ManualScanJob:
     """
 
     def __init__(self, watch_folders, threat_sentinel, on_progress=None, on_complete=None):
+        self.job_id = f"scan_{int(time.time() * 1000)}"
         self.watch_folders = list(watch_folders)
         self.threat_sentinel = threat_sentinel
         self.on_progress = on_progress
@@ -22,14 +30,17 @@ class ManualScanJob:
         self._stop_event = threading.Event()
         self._thread = None
 
+        self.state = STATE_PENDING
         self.is_running = False
         self.completed = False
         self.total_files = 0
         self.scanned_count = 0
+        self.current_operation = "Pending"
         self.flagged_items = []
         self.start_time = None
         self.end_time = None
         self.error = None
+        self.result = None
 
     def _collect_files(self):
         """Discovers all candidate files across watch folders upfront."""
@@ -53,14 +64,17 @@ class ManualScanJob:
 
         self._stop_event.clear()
         self.is_running = True
+        self.state = STATE_RUNNING
         self.completed = False
         self.flagged_items = []
         self.scanned_count = 0
+        self.current_operation = "Initializing file list..."
         self.start_time = time.time()
         self.end_time = None
         self.error = None
+        self.result = None
 
-        self._thread = threading.Thread(target=self._run, name="ghost_scan_job", daemon=True)
+        self._thread = threading.Thread(target=self._run, name=f"ghost_scan_{self.job_id}", daemon=True)
         self._thread.start()
         return True
 
@@ -68,7 +82,8 @@ class ManualScanJob:
         """Cancels an active scan job."""
         if self.is_running:
             self._stop_event.set()
-            logger.info("Scan job cancellation requested.")
+            self.current_operation = "Cancelling..."
+            logger.info(f"Scan job {self.job_id} cancellation requested.")
 
     def join(self, timeout=None):
         """Waits for the scan thread to finish."""
@@ -83,15 +98,19 @@ class ManualScanJob:
 
     def _run(self):
         try:
+            self.current_operation = "Discovering files..."
             candidate_files = self._collect_files()
             self.total_files = len(candidate_files)
-            logger.info(f"Manual scan starting: {self.total_files} file(s) across {len(self.watch_folders)} folder(s).")
+            logger.info(f"Manual scan [{self.job_id}] starting: {self.total_files} file(s) across {len(self.watch_folders)} folder(s).")
 
             for idx, file_path in enumerate(candidate_files, start=1):
                 if self._stop_event.is_set():
-                    logger.info("Scan job interrupted by stop event.")
+                    self.state = STATE_CANCELLED
+                    self.current_operation = "Cancelled"
+                    logger.info(f"Scan job [{self.job_id}] interrupted by stop event.")
                     break
 
+                self.current_operation = f"Scanning: {os.path.basename(file_path)}"
                 if self.on_progress:
                     try:
                         self.on_progress(self.scanned_count, self.total_files, file_path)
@@ -114,15 +133,22 @@ class ManualScanJob:
 
                 self.scanned_count = idx
 
-            self.completed = not self._stop_event.is_set()
+            if not self._stop_event.is_set():
+                self.completed = True
+                self.state = STATE_COMPLETED
+                self.current_operation = "Completed"
         except Exception as e:
             self.error = str(e)
-            logger.error(f"Manual scan job failed: {e}", exc_info=True)
+            self.state = STATE_FAILED
+            self.current_operation = f"Failed: {e}"
+            logger.error(f"Manual scan job [{self.job_id}] failed: {e}", exc_info=True)
         finally:
             self.is_running = False
             self.end_time = time.time()
 
             result = {
+                "job_id": self.job_id,
+                "state": self.state,
                 "completed": self.completed,
                 "total_files": self.total_files,
                 "scanned_count": self.scanned_count,
@@ -131,6 +157,7 @@ class ManualScanJob:
                 "duration_seconds": round((self.end_time or time.time()) - (self.start_time or time.time()), 2),
                 "error": self.error
             }
+            self.result = result
 
             if self.on_complete:
                 try:

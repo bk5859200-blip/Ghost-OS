@@ -91,6 +91,36 @@ class TestScanJob(unittest.TestCase):
         job.join(timeout=5.0)
 
         self.assertFalse(job.is_running)
+        self.assertIn(job.state, ["CANCELLED", "COMPLETED"])
+
+    def test_scan_job_double_start_prevention(self):
+        for i in range(10):
+            with open(os.path.join(self.watch_dir1, f"file_{i}.txt"), "w") as f:
+                f.write(f"Sample data {i}")
+
+        job = ManualScanJob(
+            watch_folders=[self.watch_dir1],
+            threat_sentinel=self.sentinel
+        )
+        first_start = job.start()
+        second_start = job.start()
+        self.assertTrue(first_start)
+        self.assertFalse(second_start)
+        job.join(timeout=5.0)
+
+    def test_scan_job_sequential_re_runnable(self):
+        with open(os.path.join(self.watch_dir1, "test.txt"), "w") as f:
+            f.write("Sample")
+
+        job1 = ManualScanJob(watch_folders=[self.watch_dir1], threat_sentinel=self.sentinel)
+        job1.start()
+        job1.join(timeout=5.0)
+        self.assertEqual(job1.state, "COMPLETED")
+
+        job2 = ManualScanJob(watch_folders=[self.watch_dir1], threat_sentinel=self.sentinel)
+        job2.start()
+        job2.join(timeout=5.0)
+        self.assertEqual(job2.state, "COMPLETED")
 
 
 if __name__ == "__main__":

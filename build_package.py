@@ -32,6 +32,15 @@ def build():
     print("==================================================")
 
     # Clean stale build and dist directories
+    print("[CLEAN] Stopping any running GhostOS processes...")
+    if sys.platform == "win32":
+        try:
+            subprocess.run(["taskkill.exe", "/F", "/IM", "GhostOS.exe"],
+                           capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW)
+            time.sleep(0.5)
+        except Exception:
+            pass
+
     print("[CLEAN] Removing stale build/ and dist/ artifacts...")
     if os.path.exists("build"):
         shutil.rmtree("build", ignore_errors=True)

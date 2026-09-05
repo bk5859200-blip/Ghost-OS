@@ -1,4 +1,4 @@
-; Ghost OS v1.0.0 — Inno Setup Script
+ï»¿; Ghost OS v1.0.0 - Inno Setup Script
 ; Generates GhostOS-Setup.exe installer
 
 #define MyAppName "Ghost OS"
@@ -23,7 +23,7 @@ SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
-CloseApplications=yes
+CloseApplications=force
 RestartApplications=no
 DisableProgramGroupPage=yes
 
@@ -35,7 +35,7 @@ Name: "autostart"; Description: "Start Ghost OS automatically with Windows"; Gro
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional shortcuts:"; Flags: unchecked
 
 [Files]
-Source: "..\dist\GhostOS\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "..\dist\GhostOS\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\ghost_os.ico"
@@ -59,7 +59,7 @@ procedure StopRunningGhostProcess();
 var
   ResultCode: Integer;
 begin
-  Exec('taskkill.exe', '/F /IM GhostOS.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM GhostOS.exe', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(500);
 end;
 

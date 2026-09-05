@@ -52,6 +52,11 @@ def build_installer():
         print(f"[ERROR] Inno Setup script not found: {iss_file}")
         return 1
 
+    ghost_exe = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dist", "GhostOS", "GhostOS.exe"))
+    if not os.path.exists(ghost_exe):
+        print(f"[ERROR] Target binary {ghost_exe} not found. Run build_package.py first!")
+        return 1
+
     cmd = [iscc_path, iss_file]
     print(f"Executing: {' '.join(cmd)}")
     result = subprocess.run(cmd)

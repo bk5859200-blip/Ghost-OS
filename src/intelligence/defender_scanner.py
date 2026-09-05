@@ -21,6 +21,10 @@ class DefenderScanner:
         self.mpcmdrun_path = mpcmdrun_path or DEFAULT_MPCMDRUN_PATH
         self.available = os.path.exists(self.mpcmdrun_path)
 
+    def is_available(self):
+        """Returns True if the Defender command-line executable exists on disk."""
+        return os.path.exists(self.mpcmdrun_path)
+
     def scan_file(self, file_path, timeout_seconds=60):
         """
         Runs a targeted on-demand scan against a single file.

@@ -59,6 +59,7 @@ class GhostCore:
         # Job locks to prevent duplicate concurrent tasks
         self._scan_lock = threading.Lock()
         self._cleanup_lock = threading.Lock()
+        self.ui_alert_callback = None
 
         # Database & Memory
         self.db_mgr = db_mgr or DBManager()
@@ -425,6 +426,11 @@ class GhostCore:
                 severity=classification,
                 on_response=self._handle_user_response
             )
+            if self.ui_alert_callback:
+                try:
+                    self.ui_alert_callback(event_id, norm_path, reason, classification)
+                except Exception as ue:
+                    logger.debug(f"UI alert callback error: {ue}")
         elif classification == MEDIUM:
             self._health_state = STATE_ATTENTION
             self.notifier.notify_suspicious(
@@ -568,7 +574,7 @@ class GhostCore:
 
     def run_diagnostics(self):
         """Runs the diagnostic health checklist and returns structured results."""
-        job = DiagnosticsJob(config=self.config, db_mgr=self.db_mgr)
+        job = DiagnosticsJob(config=self.config, db_mgr=self.db_mgr, ghost_core=self)
         return job.run_all_checks()
 
     # ------------------------------------------------------------- Memory & Digest

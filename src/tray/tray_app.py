@@ -52,6 +52,7 @@ class TrayApp:
         self.core = ghost_core
         self.quarantine_dir = quarantine_dir or PathManager.get_quarantine_dir()
         self.control_center = ControlCenterManager(self.core)
+        self.core.ui_alert_callback = self.control_center.prompt_security_alert
         self.icon = None
 
     def _open_native_folder(self, folder_path):

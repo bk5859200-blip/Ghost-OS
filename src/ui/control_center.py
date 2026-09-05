@@ -232,6 +232,19 @@ class ControlCenterApp:
         self.tree_scan.pack(side="left", fill="both", expand=True)
         scroll_scan.pack(side="right", fill="y")
 
+        # Scan results action buttons
+        action_row = tk.Frame(f, bg=BG_DARK)
+        action_row.pack(fill="x", padx=15, pady=(0, 10))
+
+        ttk.Button(action_row, text="🛡 Quarantine Selected", style="Accent.TButton",
+                   command=self._quarantine_scan_selection).pack(side="left", padx=(0, 8))
+        ttk.Button(action_row, text="🗑 Delete Selected", style="Danger.TButton",
+                   command=self._delete_scan_selection).pack(side="left", padx=(0, 8))
+        ttk.Button(action_row, text="📁 Open Location", style="Secondary.TButton",
+                   command=self._open_scan_file_location).pack(side="left", padx=(0, 8))
+        ttk.Button(action_row, text="✕ Dismiss", style="Secondary.TButton",
+                   command=self._dismiss_scan_selection).pack(side="left")
+
     # ------------------------------------------------------------- 3. QUARANTINE TAB
     def _build_quarantine_tab(self):
         f = self.tab_quarantine
@@ -247,8 +260,10 @@ class ControlCenterApp:
         btn_row.pack(fill="x")
 
         ttk.Button(btn_row, text="↺ Restore Selected File", style="Accent.TButton",
-                   command=self._restore_quarantine_item).pack(side="left", padx=(0, 10))
-        ttk.Button(btn_row, text="📁 Open Quarantine Folder", style="Secondary.TButton",
+                   command=self._restore_quarantine_item).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_row, text="🗑 Permanently Delete", style="Danger.TButton",
+                   command=self._delete_quarantine_item).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_row, text="📁 Open Folder", style="Secondary.TButton",
                    command=self._open_quarantine_folder).pack(side="left", padx=5)
         ttk.Button(btn_row, text="🔄 Refresh", style="Secondary.TButton",
                    command=self._load_quarantine_data).pack(side="left", padx=5)
@@ -278,6 +293,7 @@ class ControlCenterApp:
 
         self.tree_quarantine.pack(side="left", fill="both", expand=True)
         scroll_q.pack(side="right", fill="y")
+
 
     # ------------------------------------------------------------- 4. ACTIVITY HISTORY TAB
     def _build_activity_tab(self):
@@ -446,6 +462,7 @@ class ControlCenterApp:
     # Scan logic
     def _start_scan_job(self):
         if self._active_scan_job and self._active_scan_job.is_running:
+            messagebox.showinfo("Scan In Progress", "A system scan is already running.")
             return
 
         self.for_each_clear_tree(self.tree_scan)
@@ -606,22 +623,153 @@ class ControlCenterApp:
 
     # Diagnostics logic
     def _trigger_diagnostics(self):
+        if getattr(self, "_diag_running", False):
+            messagebox.showinfo("Diagnostics In Progress", "Diagnostics checklist is already running.")
+            return
+
+        self._diag_running = True
         self.btn_run_diag.config(state="disabled")
         self.txt_diagnostics.delete("1.0", "end")
         self.txt_diagnostics.insert("1.0", "Running diagnostics checklist...\n")
 
         def worker():
-            results = self.core.run_diagnostics()
-            job = DiagnosticsJob(self.core.config, self.core.db_mgr)
-            report = job.format_report(results)
-            self.root.after(0, lambda: self._on_diagnostics_done(report))
+            try:
+                results = self.core.run_diagnostics()
+                job = DiagnosticsJob(self.core.config, self.core.db_mgr, self.core)
+                report = job.format_report(results)
+                self.root.after(0, lambda: self._on_diagnostics_done(report))
+            except Exception as e:
+                err_msg = f"Diagnostics error: {e}"
+                self.root.after(0, lambda: self._on_diagnostics_done(err_msg))
 
         threading.Thread(target=worker, name="diag_runner", daemon=True).start()
 
     def _on_diagnostics_done(self, report):
+        self._diag_running = False
         self.btn_run_diag.config(state="normal")
         self.txt_diagnostics.delete("1.0", "end")
         self.txt_diagnostics.insert("1.0", report)
+
+    def _quarantine_scan_selection(self):
+        selected = self.tree_scan.selection()
+        if not selected:
+            messagebox.showwarning("Quarantine", "Please select a flagged file from the scan table to quarantine.")
+            return
+
+        item = self.tree_scan.item(selected[0])["values"]
+        file_path = str(item[3])
+        if not os.path.exists(file_path):
+            messagebox.showerror("Error", f"File no longer exists:\n{file_path}")
+            return
+
+        confirm = messagebox.askyesno("Confirm Quarantine", f"Safely isolate this file into the Quarantine vault?\n\n{file_path}")
+        if not confirm:
+            return
+
+        allowed, reason = self.core.safety.gate_action("quarantine", file_path)
+        if not allowed:
+            if reason == "dry_run":
+                messagebox.showinfo("Dry Run Mode", f"Dry Run mode is active in policy.yaml.\n\nProposed quarantine of:\n{file_path}\nwas safely simulated without moving the file.")
+            else:
+                messagebox.showerror("Blocked by Safety Engine", f"Quarantine was blocked: {reason}")
+            return
+
+        event_id = self.core.db_mgr.log_guardian_event(
+            file_path=file_path,
+            detector="manual_scan",
+            reason=f"Risk Score: {item[0]} [{item[1]}]",
+            severity=str(item[1]),
+            risk_score=float(item[0])
+        )
+        success, dest, _ = self.core.quarantine.quarantine_file(event_id, file_path)
+        if success:
+            messagebox.showinfo("Quarantined", f"File was safely moved to quarantine:\n{dest}")
+            self.tree_scan.delete(selected[0])
+            self._load_quarantine_data()
+        else:
+            messagebox.showerror("Error", f"Failed to quarantine file:\n{file_path}")
+
+    def _delete_scan_selection(self):
+        selected = self.tree_scan.selection()
+        if not selected:
+            messagebox.showwarning("Delete", "Please select a flagged file from the scan table to delete.")
+            return
+
+        item = self.tree_scan.item(selected[0])["values"]
+        file_path = str(item[3])
+        if not os.path.exists(file_path):
+            messagebox.showerror("Error", f"File no longer exists:\n{file_path}")
+            return
+
+        confirm = messagebox.askyesno("Confirm Permanent Deletion", f"Permanently delete this file?\n\n{file_path}\n\nWARNING: This cannot be undone!")
+        if not confirm:
+            return
+
+        allowed, reason = self.core.safety.gate_action("delete", file_path)
+        if not allowed:
+            if reason == "dry_run":
+                messagebox.showinfo("Dry Run Mode", f"Dry Run mode is active in policy.yaml.\n\nProposed deletion of:\n{file_path}\nwas safely simulated without removing the file.")
+            else:
+                messagebox.showerror("Blocked by Safety Engine", f"Deletion was blocked: {reason}")
+            return
+
+        event_id = self.core.db_mgr.log_guardian_event(
+            file_path=file_path,
+            detector="manual_scan",
+            reason="User confirmed deletion",
+            severity=str(item[1]),
+            risk_score=float(item[0])
+        )
+        if self.core.quarantine.delete_file(event_id, file_path):
+            messagebox.showinfo("Deleted", f"File was permanently deleted:\n{file_path}")
+            self.tree_scan.delete(selected[0])
+        else:
+            messagebox.showerror("Error", f"Failed to delete file:\n{file_path}")
+
+    def _open_scan_file_location(self):
+        selected = self.tree_scan.selection()
+        if not selected:
+            messagebox.showwarning("Open Location", "Please select a file from the scan table.")
+            return
+
+        item = self.tree_scan.item(selected[0])["values"]
+        file_path = str(item[3])
+        folder = os.path.dirname(file_path)
+        if os.path.exists(folder):
+            try:
+                if os.name == "nt":
+                    from src.core.proc_utils import popen_hidden
+                    popen_hidden(["explorer.exe", f"/select,{os.path.normpath(file_path)}"])
+                else:
+                    os.startfile(folder)
+            except Exception:
+                pass
+
+    def _dismiss_scan_selection(self):
+        selected = self.tree_scan.selection()
+        if selected:
+            self.tree_scan.delete(selected[0])
+
+    def _delete_quarantine_item(self):
+        selected = self.tree_quarantine.selection()
+        if not selected:
+            messagebox.showwarning("Delete", "Please select a quarantined file to delete.")
+            return
+
+        item_values = self.tree_quarantine.item(selected[0])["values"]
+        item_id = item_values[0]
+        q_path = item_values[5]
+
+        confirm = messagebox.askyesno("Confirm Permanent Deletion", f"Permanently remove this quarantined file?\n\n{q_path}\n\nWARNING: This cannot be undone!")
+        if confirm:
+            try:
+                if os.path.exists(q_path):
+                    os.remove(q_path)
+                self.core.db_mgr.resolve_guardian_event(item_id, "deleted_from_quarantine")
+                messagebox.showinfo("Deleted", "Quarantined file permanently removed.")
+                self._load_quarantine_data()
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to delete quarantined file: {e}")
 
     def for_each_clear_tree(self, tree):
         for item in tree.get_children():
@@ -631,7 +779,7 @@ class ControlCenterApp:
 class ControlCenterManager:
     """
     Manages opening and focusing the ControlCenter Tkinter GUI on a separate thread.
-    Thread-safe and supports tab switching.
+    Thread-safe and supports tab switching and real-time interactive alert dialogs.
     """
 
     def __init__(self, ghost_core):
@@ -679,3 +827,117 @@ class ControlCenterManager:
                 except Exception:
                     pass
                 self._app = None
+
+    def prompt_security_alert(self, event_id, file_path, reason, severity):
+        """Displays an interactive alert popup asking user to Quarantine, Delete, or Let It Be (Ignore)."""
+        def show_dialog():
+            dialog = tk.Toplevel()
+            dialog.title("👻 Ghost OS Security Alert")
+            dialog.geometry("520x260")
+            dialog.minsize(480, 240)
+            dialog.configure(bg=BG_DARK)
+            dialog.attributes("-topmost", True)
+            dialog.lift()
+
+            header = tk.Label(
+                dialog,
+                text="⚠ Suspicious / Unwanted File Detected",
+                bg=BG_DARK,
+                fg=ACCENT_RED,
+                font=("Segoe UI", 12, "bold")
+            )
+            header.pack(anchor="w", padx=20, pady=(15, 5))
+
+            msg_text = (
+                f"File: {os.path.basename(file_path)}\n"
+                f"Location: {file_path}\n"
+                f"Risk: {severity}\n"
+                f"Reason: {reason}\n\n"
+                f"Choose an action to take:"
+            )
+            lbl = tk.Label(
+                dialog,
+                text=msg_text,
+                bg=BG_DARK,
+                fg=FG_MAIN,
+                justify="left",
+                font=("Segoe UI", 9)
+            )
+            lbl.pack(anchor="w", padx=20, pady=5)
+
+            btn_frame = tk.Frame(dialog, bg=BG_DARK)
+            btn_frame.pack(fill="x", padx=20, pady=(15, 10))
+
+            def on_quarantine():
+                dialog.destroy()
+                self.core._handle_user_response(event_id, file_path, "quarantine")
+
+            def on_delete():
+                dialog.destroy()
+                self.core._handle_user_response(event_id, file_path, "delete")
+
+            def on_ignore():
+                dialog.destroy()
+                self.core._handle_user_response(event_id, file_path, "ignore")
+
+            ttk.Button(btn_frame, text="🛡 Quarantine", style="Accent.TButton", command=on_quarantine).pack(side="left", padx=(0, 10))
+            ttk.Button(btn_frame, text="🗑 Delete", style="Danger.TButton", command=on_delete).pack(side="left", padx=(0, 10))
+            ttk.Button(btn_frame, text="✕ Let It Be (Ignore)", style="Secondary.TButton", command=on_ignore).pack(side="left")
+
+        with self._lock:
+            if self._app and self._app.root and self._app.root.winfo_exists():
+                self._app.root.after(0, show_dialog)
+            else:
+                threading.Thread(target=lambda: self._run_standalone_alert(event_id, file_path, reason, severity), daemon=True).start()
+
+    def _run_standalone_alert(self, event_id, file_path, reason, severity):
+        try:
+            root = tk.Tk()
+            root.title("👻 Ghost OS Security Alert")
+            root.geometry("520x260")
+            root.minsize(480, 240)
+            root.configure(bg=BG_DARK)
+            root.attributes("-topmost", True)
+
+            style = ttk.Style(root)
+            style.theme_use("clam")
+            style.configure("Accent.TButton", background=ACCENT_PURPLE, foreground="#ffffff", font=("Segoe UI", 9, "bold"), borderwidth=0, padding=6)
+            style.configure("Danger.TButton", background=ACCENT_RED, foreground="#11111b", font=("Segoe UI", 9, "bold"), borderwidth=0, padding=6)
+            style.configure("Secondary.TButton", background=BG_INPUT, foreground=FG_MAIN, font=("Segoe UI", 9), borderwidth=0, padding=6)
+
+            header = tk.Label(root, text="⚠ Suspicious / Unwanted File Detected", bg=BG_DARK, fg=ACCENT_RED, font=("Segoe UI", 12, "bold"))
+            header.pack(anchor="w", padx=20, pady=(15, 5))
+
+            msg_text = (
+                f"File: {os.path.basename(file_path)}\n"
+                f"Location: {file_path}\n"
+                f"Risk: {severity}\n"
+                f"Reason: {reason}\n\n"
+                f"Choose an action to take:"
+            )
+            lbl = tk.Label(root, text=msg_text, bg=BG_DARK, fg=FG_MAIN, justify="left", font=("Segoe UI", 9))
+            lbl.pack(anchor="w", padx=20, pady=5)
+
+            btn_frame = tk.Frame(root, bg=BG_DARK)
+            btn_frame.pack(fill="x", padx=20, pady=(15, 10))
+
+            def on_quarantine():
+                root.destroy()
+                self.core._handle_user_response(event_id, file_path, "quarantine")
+
+            def on_delete():
+                root.destroy()
+                self.core._handle_user_response(event_id, file_path, "delete")
+
+            def on_ignore():
+                root.destroy()
+                self.core._handle_user_response(event_id, file_path, "ignore")
+
+            ttk.Button(btn_frame, text="🛡 Quarantine", style="Accent.TButton", command=on_quarantine).pack(side="left", padx=(0, 10))
+            ttk.Button(btn_frame, text="🗑 Delete", style="Danger.TButton", command=on_delete).pack(side="left", padx=(0, 10))
+            ttk.Button(btn_frame, text="✕ Let It Be (Ignore)", style="Secondary.TButton", command=on_ignore).pack(side="left")
+
+            root.mainloop()
+        except Exception:
+            pass
+

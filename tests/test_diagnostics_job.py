@@ -45,6 +45,17 @@ class TestDiagnosticsJob(unittest.TestCase):
         self.assertIn("GHOST OS DIAGNOSTICS REPORT", report)
         self.assertIn("SQLite Database Integrity", report)
 
+    def test_diagnostics_states_and_repeatability(self):
+        # Run #1
+        r1 = self.diag.run_all_checks()
+        self.assertEqual(self.diag.state, "COMPLETED")
+        self.assertIn(r1["overall_status"], ["PASS", "WARN"])
+
+        # Run #2
+        r2 = self.diag.run_all_checks()
+        self.assertEqual(self.diag.state, "COMPLETED")
+        self.assertIn(r2["overall_status"], ["PASS", "WARN"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Compiles GhostOS-Setup.exe using Inno Setup (ISCC.exe).
 Usage:
@@ -60,9 +60,36 @@ def build_installer():
         setup_exe = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dist", "GhostOS-Setup.exe"))
         if os.path.exists(setup_exe):
             size_bytes = os.path.getsize(setup_exe)
+            
+            import hashlib
+            h = hashlib.sha256()
+            with open(setup_exe, "rb") as f:
+                while chunk := f.read(65536):
+                    h.update(chunk)
+            setup_hash = h.hexdigest().upper()
+
             print(f"\n[SUCCESS] Installer successfully built!")
-            print(f"Location:  {setup_exe}")
-            print(f"File Size: {size_bytes:,} bytes ({size_bytes / (1024*1024):.2f} MB)")
+            print(f"  Location:   {setup_exe}")
+            print(f"  File Size:  {size_bytes:,} bytes ({size_bytes / (1024*1024):.2f} MB)")
+            print(f"  SHA-256:    {setup_hash}")
+
+            # Update release manifest
+            manifest_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "dist", "release_manifest.json"))
+            if os.path.exists(manifest_path):
+                try:
+                    import json
+                    with open(manifest_path, "r", encoding="utf-8") as mf:
+                        manifest = json.load(mf)
+                    manifest["artifacts"]["installer"] = {
+                        "path": "dist/GhostOS-Setup.exe",
+                        "size_bytes": size_bytes,
+                        "sha256": setup_hash
+                    }
+                    with open(manifest_path, "w", encoding="utf-8") as mf:
+                        json.dump(manifest, mf, indent=2)
+                    print(f"  Updated manifest with installer info: {manifest_path}")
+                except Exception as e:
+                    print(f"  [WARNING] Could not update manifest: {e}")
         else:
             print(f"\n[WARNING] ISCC exited with 0 but {setup_exe} was not found.")
     else:
@@ -73,3 +100,4 @@ def build_installer():
 
 if __name__ == "__main__":
     sys.exit(build_installer())
+

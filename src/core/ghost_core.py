@@ -426,11 +426,6 @@ class GhostCore:
                 severity=classification,
                 on_response=self._handle_user_response
             )
-            if self.ui_alert_callback:
-                try:
-                    self.ui_alert_callback(event_id, norm_path, reason, classification)
-                except Exception as ue:
-                    logger.debug(f"UI alert callback error: {ue}")
         elif classification == MEDIUM:
             self._health_state = STATE_ATTENTION
             self.notifier.notify_suspicious(
@@ -467,6 +462,12 @@ class GhostCore:
             allowed, _ = self.safety.gate_action("delete", file_path)
             if allowed:
                 self.quarantine.delete_file(event_id, file_path)
+        elif action == "details":
+            if hasattr(self, "ui_show_tab_callback") and self.ui_show_tab_callback:
+                try:
+                    self.ui_show_tab_callback("activity")
+                except Exception:
+                    pass
         else:
             self.quarantine.ignore_event(event_id)
 

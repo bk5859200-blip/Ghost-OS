@@ -3,7 +3,7 @@
 **Release Build**: v1.0.0  
 **Verification Date**: 2026-09-05  
 **Target Platform**: Windows 10 / 11 (64-bit)  
-**Git Commit**: bc1a8c4 (origin/main)  
+**Git Commit**: 2af273e  
 **Overall Status**: RELEASE READY (100% Verified on Actual Installed EXE)
 
 ---
@@ -30,10 +30,10 @@
 
 | Artifact | File Path | Size | SHA-256 Hash |
 |---|---|---|---|
-| **Standalone Binary** | `dist/GhostOS/GhostOS.exe` | 27,073,842 bytes (25.82 MB) | `D3EF724F39A9C46792B6F4D1550F2F204B309B8072C2FBC135B66E5825D7F246` |
-| **Installed Binary** | `%LOCALAPPDATA%\Programs\Ghost OS\GhostOS.exe` | 27,073,842 bytes (25.82 MB) | `D3EF724F39A9C46792B6F4D1550F2F204B309B8072C2FBC135B66E5825D7F246` |
-| **Portable Archive** | `dist/GhostOS-portable.zip` | 97,179,962 bytes (92.68 MB) | `2E1C5648185B22E34716A1515D71A8D63702E5C5A724DE081FC56AEC63AEBC20` |
-| **Windows Setup** | `dist/GhostOS-Setup.exe` | 66,834,943 bytes (63.74 MB) | `26C759748390DBEFF8B6DC957B043C6D9B3B94116774B4985BB222108AC37B73` |
+| **Standalone Binary** | `dist/GhostOS/GhostOS.exe` | 27,073,842 bytes (25.82 MB) | `B7A5CBBA3E637F70C264FD1D0E2CAD646BA910F0E804F0173E5DD54077228E51` |
+| **Installed Binary** | `%LOCALAPPDATA%\Programs\Ghost OS\GhostOS.exe` | 27,073,842 bytes (25.82 MB) | `B7A5CBBA3E637F70C264FD1D0E2CAD646BA910F0E804F0173E5DD54077228E51` |
+| **Portable Archive** | `dist/GhostOS-portable.zip` | 97,179,880 bytes (92.68 MB) | `532C2A0864DA064F9CD8BD6AC66AC74151740ED458C96CBA85EB9914EDD67375` |
+| **Windows Setup** | `dist/GhostOS-Setup.exe` | 66,839,368 bytes (63.74 MB) | `802CC941998407EA3D6FC2C1797D1998A23BA29E7180F4BB318CA0EA55EE8F93` |
 
 > **Hash Match Verified**: `BUILD EXE HASH == INSTALLED EXE HASH` (`True`)
 
@@ -60,6 +60,7 @@
    - Duplicate clicks are prevented while running (`Scan In Progress` dialog).
    - Re-running scans and diagnostics repeatedly succeeds without leaking workers.
 
-5. **Threat Detection & Interactive Dialogs**:
-   - Flagged items present interactive action buttons: `[ 🛡 Quarantine ]`, `[ 🗑 Delete ]`, `[ 📁 Open Location ]`, and `[ ✕ Dismiss ]`.
-   - In-app Tkinter modal alerts allow instant user decisions with real-time feedback.
+5. **Threat Detection & Native Windows Toast Flow**:
+   - Background threat detection fires native Windows Action Center toasts with `[Quarantine]`, `[Leave it alone]`, and `[View details]`.
+   - Action Center alerts remain visible and interactable regardless of whether Control Center is open, minimized, or closed.
+   - All toast actions are completely non-blocking to GhostCore background monitoring.

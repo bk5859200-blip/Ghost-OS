@@ -149,14 +149,14 @@ class Notifier:
         self._record(title, message, key, CAT_SECURITY, suppressed, delivered)
 
     def alert_detection(self, event_id, file_path, reason, severity, on_response):
-        """Actionable alert with Quarantine / Delete / Ignore interactive buttons."""
+        """Actionable native Windows toast alert with Quarantine / Leave it alone / View details buttons."""
         if not self.enabled:
             return
 
         filename = os.path.basename(file_path)
         icon = {"CRITICAL": "🛡", "HIGH": "⚠", "MEDIUM": "⚠"}.get(severity, "👻")
-        title = f"{icon} Ghost OS"
-        message = f"Suspicious file: {filename}\nRisk: {severity}\nReason: {reason}"
+        title = f"{icon} Ghost OS — Potential Threat Detected"
+        message = f"File: {filename}\nLocation: {file_path}\nAssessment: {severity}\nReason: {reason}"
 
         key = f"alert:{event_id}:{file_path}"
         send_now, suppressed = self._should_send(key)
@@ -168,8 +168,8 @@ class Notifier:
             from windows_toasts import Toast, ToastButton, ToastActivatedEventArgs
             toast = Toast([title, message])
             toast.AddAction(ToastButton("Quarantine", f"quarantine|{event_id}"))
-            toast.AddAction(ToastButton("Delete", f"delete|{event_id}"))
-            toast.AddAction(ToastButton("Ignore", f"ignore|{event_id}"))
+            toast.AddAction(ToastButton("Leave it alone", f"ignore|{event_id}"))
+            toast.AddAction(ToastButton("View details", f"details|{event_id}"))
 
             def _on_activated(activated_event: ToastActivatedEventArgs):
                 try:

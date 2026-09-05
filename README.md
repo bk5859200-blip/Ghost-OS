@@ -168,37 +168,36 @@ Ghost-OS/
 
 ---
 
-## Installation
+## Installation & User Distribution
 
-### Option 1 — Windows Installer
+### Recommended — Windows Installer (`GhostOS-Setup.exe`)
 
-Download the latest `GhostOS-Setup.exe` release and run the installer.
+For standard users, **`GhostOS-Setup.exe`** is the primary, self-contained distribution package. It requires **no Python installation, no terminal commands, and no manual file copying**.
 
-The installer can configure:
+1. Download **`GhostOS-Setup.exe`** from the latest release.
+2. Run `GhostOS-Setup.exe` and follow the setup wizard.
+3. The installer automatically configures:
+   * Application binaries in `%LOCALAPPDATA%\Programs\Ghost OS\`
+   * Start Menu shortcut
+   * Optional Desktop shortcut
+   * Optional Windows Startup (auto-launch on user logon)
+   * Isolated runtime telemetry and vault directories in `%LOCALAPPDATA%\GhostOS\`
+   * Windows Uninstaller integration in Settings / Control Panel
 
-* Application installation
-* Start Menu shortcuts
-* Optional Windows startup
-* Uninstallation
+### Portable Archive (`GhostOS-portable.zip`)
 
-### Option 2 — Run From Source
+For standalone or offline environments without installation privileges:
+1. Download and extract **`GhostOS-portable.zip`**.
+2. Run `GhostOS.exe` directly.
 
-Clone the repository:
+### Developer Setup — Run From Source (Development Only)
+
+Clone the repository and set up the local Python virtual environment:
 
 ```powershell
 git clone https://github.com/bk5859200-blip/Ghost-OS.git
 cd Ghost-OS
-```
-
-Create a virtual environment:
-
-```powershell
 python -m venv .venv
-```
-
-Activate it:
-
-```powershell
 .venv\Scripts\Activate.ps1
 ```
 

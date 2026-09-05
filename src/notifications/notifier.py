@@ -1,5 +1,6 @@
 import time
 import os
+import sys
 import threading
 import logging
 
@@ -14,6 +15,8 @@ CAT_QUARANTINE = "QUARANTINE"
 CAT_RECOVERY = "RECOVERY"
 CAT_ERROR = "ERROR"
 
+GHOST_AUMID = "GhostOS.SystemGuardian.v1"
+
 
 class Notifier:
     """
@@ -22,9 +25,16 @@ class Notifier:
     Persists all alerts to SQLite for audit history and away digests.
     """
 
-    def __init__(self, app_name="Ghost OS", cooldown_seconds=120,
+    def __init__(self, app_name=GHOST_AUMID, cooldown_seconds=120,
                  aggregate_window_seconds=300, enabled=True, db_mgr=None):
-        self.app_name = app_name
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(GHOST_AUMID)
+            except Exception:
+                pass
+
+        self.app_name = app_name or GHOST_AUMID
         self.enabled = enabled
         self.cooldown_seconds = cooldown_seconds
         self.aggregate_window_seconds = aggregate_window_seconds

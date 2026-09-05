@@ -30,6 +30,13 @@ sys.excepthook = _global_exception_handler
 
 
 def main():
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("GhostOS.SystemGuardian.v1")
+        except Exception:
+            pass
+
     instance_guard = SingleInstance()
     if not instance_guard.acquire():
         print("Ghost OS is already running.")

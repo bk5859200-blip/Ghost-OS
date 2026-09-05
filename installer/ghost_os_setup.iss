@@ -5,6 +5,7 @@
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "Ghost OS"
 #define MyAppExeName "GhostOS.exe"
+#define MyAUMID "GhostOS.SystemGuardian.v1"
 
 [Setup]
 AppId={{D8C8B190-7F89-4A99-8D88-E500A78E1100}
@@ -38,13 +39,17 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription:
 Source: "..\dist\GhostOS\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs overwritereadonly
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\ghost_os.ico"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\assets\ghost_os.ico"; AppUserModelID: "{#MyAUMID}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; IconFilename: "{app}\assets\ghost_os.ico"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon; IconFilename: "{app}\assets\ghost_os.ico"; AppUserModelID: "{#MyAUMID}"
 
 [Registry]
 ; Register HKCU Run autostart key if task is selected
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "GhostOS"; ValueData: """{app}\{#MyAppExeName}"""; Tasks: autostart; Flags: uninsdeletevalue
+
+; Register AppUserModelId for Windows Action Center Toast Notifications
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#MyAUMID}"; ValueType: string; ValueName: "DisplayName"; ValueData: "{#MyAppName}"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\{#MyAUMID}"; ValueType: string; ValueName: "IconUri"; ValueData: "{app}\assets\ghost_os.ico"; Flags: uninsdeletekey
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Ghost OS now"; Flags: nowait postinstall skipifsilent

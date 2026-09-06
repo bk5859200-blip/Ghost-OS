@@ -292,6 +292,14 @@ class DBManager:
             """, (datetime.now().isoformat(), quarantine_path))
             conn.commit()
 
+    def get_quarantine_by_path(self, quarantine_path):
+        with self._lock:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM quarantine_log WHERE quarantine_path = ? ORDER BY id DESC LIMIT 1", (quarantine_path,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
     def log_cleanup_event(self, files_removed, dirs_removed, space_recovered_mb, categories=None, dry_run=True):
         with self._lock:
             conn = self.get_connection()

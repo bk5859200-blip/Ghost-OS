@@ -159,12 +159,25 @@ class ControlCenterApp:
         self.lbl_mode = ttk.Label(c4, text="ACTIVE", style="Value.TLabel")
         self.lbl_mode.pack(anchor="w", pady=4)
 
+        # Telemetry Trend Sparkline Card
+        trend_frame = ttk.Frame(f, style="Card.TFrame", padding=10)
+        trend_frame.pack(fill="x", padx=15, pady=(0, 5))
+
+        trend_hdr = tk.Frame(trend_frame, bg=BG_CARD)
+        trend_hdr.pack(fill="x", pady=(0, 4))
+        ttk.Label(trend_hdr, text="Telemetry Trend — Past 15 Minutes", style="Subheader.TLabel").pack(side="left")
+        ttk.Label(trend_hdr, text="■ RAM", foreground="#cba6f7", background=BG_CARD, font=("Segoe UI", 8, "bold")).pack(side="right", padx=(6, 0))
+        ttk.Label(trend_hdr, text="■ CPU", foreground="#89b4fa", background=BG_CARD, font=("Segoe UI", 8, "bold")).pack(side="right", padx=(6, 0))
+
+        self.canvas_trend = tk.Canvas(trend_frame, bg=BG_INPUT, height=60, highlightthickness=0)
+        self.canvas_trend.pack(fill="x", expand=True)
+
         # Away Summary Digest Card
         summary_frame = ttk.Frame(f, style="Card.TFrame", padding=15)
         summary_frame.pack(fill="both", expand=True, padx=15, pady=5)
 
         ttk.Label(summary_frame, text="Activity Digest — Past 24 Hours", style="Header.TLabel").pack(anchor="w")
-        self.txt_digest = tk.Text(summary_frame, bg=BG_INPUT, fg=FG_MAIN, height=8,
+        self.txt_digest = tk.Text(summary_frame, bg=BG_INPUT, fg=FG_MAIN, height=7,
                                   font=("Consolas", 9), relief="flat", padx=10, pady=10)
         self.txt_digest.pack(fill="both", expand=True, pady=10)
 
@@ -174,10 +187,10 @@ class ControlCenterApp:
 
         ttk.Button(action_bar, text="▶ Run Quick Scan", style="Accent.TButton",
                    command=lambda: self._select_tab("scan")).pack(side="left", padx=5)
-        ttk.Button(action_bar, text="🧹 Propose System Cleanup", style="Secondary.TButton",
+        ttk.Button(action_bar, text="🧹 Clean System", style="Secondary.TButton",
                    command=self._trigger_cleanup).pack(side="left", padx=5)
         self.btn_pause_toggle = ttk.Button(action_bar, text="⏸ Pause Guardian", style="Secondary.TButton",
-                                           command=self._toggle_pause)
+                                            command=self._toggle_pause)
         self.btn_pause_toggle.pack(side="left", padx=5)
 
     # ------------------------------------------------------------- 2. QUICK SCAN TAB
@@ -445,6 +458,49 @@ class ControlCenterApp:
             )
             self.txt_digest.delete("1.0", "end")
             self.txt_digest.insert("1.0", digest_text)
+
+            # Draw sparkline trend
+            self._draw_sparkline()
+        except Exception:
+            pass
+
+    def _draw_sparkline(self):
+        try:
+            if not hasattr(self, "canvas_trend") or not self.canvas_trend.winfo_exists():
+                return
+            metrics_history = self.core.db_mgr.get_latest_system_metrics(limit=45)
+            self.canvas_trend.delete("all")
+            w = self.canvas_trend.winfo_width()
+            h = self.canvas_trend.winfo_height()
+            if w <= 10 or h <= 10:
+                w, h = 800, 60
+
+            # Background grid lines (25%, 50%, 75%)
+            for pct in (0.25, 0.50, 0.75):
+                y = h - (pct * h)
+                self.canvas_trend.create_line(0, y, w, y, fill="#313244", dash=(2, 4))
+
+            if not metrics_history or len(metrics_history) < 2:
+                return
+
+            n = len(metrics_history)
+            dx = w / max(n - 1, 1)
+
+            cpu_pts = []
+            ram_pts = []
+            for i, m in enumerate(metrics_history):
+                x = i * dx
+                cpu_val = min(max(m.get("cpu_percent", 0.0), 0.0), 100.0)
+                ram_val = min(max(m.get("ram_percent", 0.0), 0.0), 100.0)
+                y_cpu = (h - 4) - (cpu_val / 100.0 * (h - 8))
+                y_ram = (h - 4) - (ram_val / 100.0 * (h - 8))
+                cpu_pts.extend([x, y_cpu])
+                ram_pts.extend([x, y_ram])
+
+            if len(cpu_pts) >= 4:
+                self.canvas_trend.create_line(*cpu_pts, fill="#89b4fa", width=2, smooth=True)
+            if len(ram_pts) >= 4:
+                self.canvas_trend.create_line(*ram_pts, fill="#cba6f7", width=2, smooth=True)
         except Exception:
             pass
 

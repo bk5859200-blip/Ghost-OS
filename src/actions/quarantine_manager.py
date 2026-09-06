@@ -86,17 +86,27 @@ class QuarantineManager:
         logger.info(f"Guardian event {event_id} ignored by user.")
 
     def restore_file(self, quarantine_path, original_path):
-        """Restores an isolated file back to its original location."""
+        """Restores an isolated file back to its original location and verifies hash integrity."""
         try:
             if not os.path.exists(quarantine_path):
                 logger.warning(f"Quarantine file not found: {quarantine_path}")
                 return False
 
+            record = self.db_mgr.get_quarantine_by_path(quarantine_path)
+            expected_hash = record.get("file_hash") if record else None
+
             os.makedirs(os.path.dirname(original_path), exist_ok=True)
             shutil.move(quarantine_path, original_path)
 
+            restored_hash = self._calculate_sha256(original_path)
+            if expected_hash and restored_hash and expected_hash != restored_hash:
+                logger.error(
+                    f"Integrity check failed after restore! Expected SHA-256 {expected_hash}, got {restored_hash} for {original_path}"
+                )
+                return False
+
             self.db_mgr.mark_quarantine_restored(quarantine_path)
-            logger.info(f"Restored file {quarantine_path} -> {original_path}")
+            logger.info(f"Restored file {quarantine_path} -> {original_path} (SHA-256 verified: {restored_hash})")
             return True
         except Exception as e:
             logger.error(f"Failed to restore {quarantine_path}: {e}")

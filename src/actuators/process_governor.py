@@ -1,3 +1,4 @@
+import sys
 import psutil
 
 class ProcessGovernor:
@@ -7,14 +8,24 @@ class ProcessGovernor:
     """
     def __init__(self):
         # Mappings of standard OS priorities to psutil priority classes on Windows
-        self.priority_classes = {
-            "IDLE": psutil.IDLE_PRIORITY_CLASS,
-            "BELOW_NORMAL": psutil.BELOW_NORMAL_PRIORITY_CLASS,
-            "NORMAL": psutil.NORMAL_PRIORITY_CLASS,
-            "ABOVE_NORMAL": psutil.ABOVE_NORMAL_PRIORITY_CLASS,
-            "HIGH": psutil.HIGH_PRIORITY_CLASS,
-            "REALTIME": psutil.REALTIME_PRIORITY_CLASS
-        }
+        if sys.platform == "win32":
+            self.priority_classes = {
+                "IDLE": getattr(psutil, "IDLE_PRIORITY_CLASS", None),
+                "BELOW_NORMAL": getattr(psutil, "BELOW_NORMAL_PRIORITY_CLASS", None),
+                "NORMAL": getattr(psutil, "NORMAL_PRIORITY_CLASS", None),
+                "ABOVE_NORMAL": getattr(psutil, "ABOVE_NORMAL_PRIORITY_CLASS", None),
+                "HIGH": getattr(psutil, "HIGH_PRIORITY_CLASS", None),
+                "REALTIME": getattr(psutil, "REALTIME_PRIORITY_CLASS", None)
+            }
+        else:
+            self.priority_classes = {
+                "IDLE": 19,
+                "BELOW_NORMAL": 10,
+                "NORMAL": 0,
+                "ABOVE_NORMAL": -5,
+                "HIGH": -10,
+                "REALTIME": -20
+            }
 
     def terminate_process(self, pid):
         """Kills the process immediately."""

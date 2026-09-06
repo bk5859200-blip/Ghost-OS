@@ -497,9 +497,11 @@ class GhostCore:
                         if os.path.isfile(item_path):
                             scanned_count += 1
                             analysis = self.threat_sentinel.analyze_file(item_path)
-                            if analysis and analysis["risk_score"] >= 60:
-                                flagged_count += 1
-                                self._on_file_event(item_path)
+                            if analysis:
+                                severity, outcome, _ = self.decision.decide_for_file_risk(analysis)
+                                if outcome in (ASK_USER, NOTIFY):
+                                    flagged_count += 1
+                                    self._on_file_event(item_path)
                 except OSError:
                     continue
 
@@ -570,7 +572,8 @@ class GhostCore:
             watch_folders=folders,
             threat_sentinel=self.threat_sentinel,
             on_progress=on_progress,
-            on_complete=on_complete
+            on_complete=on_complete,
+            decision_engine=self.decision
         )
 
     def run_diagnostics(self):

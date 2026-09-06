@@ -7,9 +7,10 @@ import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from src.actions.scan_job import ManualScanJob
 from src.intelligence.threat_sentinel import ThreatSentinel
-from src.decision.decision_engine import DecisionEngine
+from src.decision.decision_engine import DecisionEngine, ASK_USER, NOTIFY
 from src.decision.safety_engine import SafetyEngine
 from src.database.db_manager import DBManager
+from src.core.ghost_core import GhostCore
 
 
 class TestScanJob(unittest.TestCase):
@@ -23,6 +24,7 @@ class TestScanJob(unittest.TestCase):
         self.db_path = os.path.join(self.tmpdir, "scan_test.db")
         self.db_mgr = DBManager(db_path=self.db_path)
         self.sentinel = ThreatSentinel()
+        self.decision_engine = DecisionEngine()
 
     def tearDown(self):
         import shutil
@@ -121,6 +123,46 @@ class TestScanJob(unittest.TestCase):
         job2.start()
         job2.join(timeout=5.0)
         self.assertEqual(job2.state, "COMPLETED")
+
+    def test_disguised_file_flagging_consistency_between_scan_and_background_watcher(self):
+        """
+        Regression test: Ensures disguised double-extension files (e.g. invoice.pdf.exe)
+        are flagged consistently by BOTH ManualScanJob and the background file event pipeline.
+        """
+        disguised_path = os.path.join(self.watch_dir1, "invoice.pdf.exe")
+        with open(disguised_path, "w") as f:
+            f.write("MZ fake executable header payload")
+
+        # 1. Run through ManualScanJob
+        scan_job = ManualScanJob(
+            watch_folders=[self.watch_dir1],
+            threat_sentinel=self.sentinel,
+            decision_engine=self.decision_engine
+        )
+        scan_job.start()
+        scan_job.join(timeout=5.0)
+
+        self.assertEqual(scan_job.state, "COMPLETED")
+        self.assertEqual(len(scan_job.flagged_items), 1)
+        self.assertEqual(scan_job.flagged_items[0]["file_path"], disguised_path)
+        scan_outcome = scan_job.flagged_items[0]["outcome"]
+        self.assertIn(scan_outcome, [ASK_USER, NOTIFY])
+
+        # 2. Run through background pipeline (GhostCore.execute_event_pipeline)
+        config = {
+            "monitoring": {"poll_interval_seconds": 1, "telemetry_retention_days": 1},
+            "thresholds": {"cpu": {"critical_percent": 90}},
+            "watch_folders": [self.watch_dir1],
+            "security": {"protected_processes": [], "protected_paths": []},
+            "cleanup": {"stale_temp_age_hours": 24},
+            "notifications": {"cooldown_seconds": 120, "aggregation_window_seconds": 300},
+            "safety": {"dry_run": True}
+        }
+        core = GhostCore(config=config, db_mgr=self.db_mgr)
+        pipeline_res = core.execute_event_pipeline(disguised_path)
+
+        self.assertEqual(pipeline_res["status"], "processed")
+        self.assertEqual(pipeline_res["outcome"], scan_outcome)
 
 
 if __name__ == "__main__":

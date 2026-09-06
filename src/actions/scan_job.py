@@ -3,6 +3,8 @@ import time
 import logging
 import threading
 
+from src.decision.decision_engine import DecisionEngine, ASK_USER, NOTIFY
+
 logger = logging.getLogger("ghost.actions.scan_job")
 
 
@@ -20,10 +22,11 @@ class ManualScanJob:
     and runs asynchronously without blocking the main event loop.
     """
 
-    def __init__(self, watch_folders, threat_sentinel, on_progress=None, on_complete=None):
+    def __init__(self, watch_folders, threat_sentinel, on_progress=None, on_complete=None, decision_engine=None):
         self.job_id = f"scan_{int(time.time() * 1000)}"
         self.watch_folders = list(watch_folders)
         self.threat_sentinel = threat_sentinel
+        self.decision_engine = decision_engine or DecisionEngine()
         self.on_progress = on_progress
         self.on_complete = on_complete
 
@@ -120,14 +123,18 @@ class ManualScanJob:
                 if os.path.isfile(file_path):
                     try:
                         analysis = self.threat_sentinel.analyze_file(file_path)
-                        if analysis and analysis.get("risk_score", 0) >= 60:
-                            self.flagged_items.append({
-                                "file_path": file_path,
-                                "risk_score": analysis.get("risk_score", 0),
-                                "classification": analysis.get("classification", "UNKNOWN"),
-                                "category": analysis.get("category", "unknown"),
-                                "signals": analysis.get("signals", [])
-                            })
+                        if analysis:
+                            severity, outcome, reason = self.decision_engine.decide_for_file_risk(analysis)
+                            if outcome in (ASK_USER, NOTIFY):
+                                self.flagged_items.append({
+                                    "file_path": file_path,
+                                    "risk_score": analysis.get("risk_score", 0),
+                                    "classification": severity,
+                                    "category": analysis.get("category", "unknown"),
+                                    "outcome": outcome,
+                                    "reason": reason,
+                                    "signals": analysis.get("signals", [])
+                                })
                     except Exception as fe:
                         logger.debug(f"Error analyzing '{file_path}': {fe}")
 

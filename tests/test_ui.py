@@ -66,6 +66,26 @@ class TestControlCenterUI(unittest.TestCase):
         self.assertIsNotNone(mgr)
         self.assertIsNone(mgr._app)
 
+    def test_control_center_manager_hide_and_restore(self):
+        mgr = ControlCenterManager(self.core)
+        # Directly instantiate app for manager testing
+        mgr._app = ControlCenterApp(self.core, initial_tab="overview")
+        self.assertIsNotNone(mgr._app.root)
+
+        # Test hide to tray on window close
+        mgr._on_window_close()
+        # Withdrawn windows in Tk have state 'withdrawn'
+        self.assertEqual(mgr._app.root.state(), "withdrawn")
+
+        # Test show restores window and selects tab
+        mgr._focus_tab("quarantine")
+        self.assertEqual(mgr._app.root.state(), "normal")
+        self.assertEqual(mgr._app.notebook.tab(mgr._app.notebook.select(), "text").strip(), "Quarantine")
+
+        # Clean exit
+        mgr._destroy_ui()
+        self.assertIsNone(mgr._app)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,9 +1,9 @@
 """
 Ghost OS entrypoint.
 
-Startup sequence (spec section 34):
+Startup sequence:
   single-instance check -> load & validate config -> set up logging ->
-  GhostCore.start() (spawns background watchers) -> tray icon (blocks).
+  GhostCore.start() (spawns background watchers) -> Control Center UI immediately on main thread + non-blocking tray.
 """
 import os
 import sys
@@ -14,6 +14,7 @@ from src.core.single_instance import SingleInstance
 from src.core.config_loader import load_config, ConfigError
 from src.core.logger_setup import setup_logger
 from src.core.ghost_core import GhostCore
+from src.ui.control_center import ControlCenterManager
 from src.tray.tray_app import TrayApp
 
 
@@ -60,10 +61,17 @@ def main():
         core = GhostCore(config)
         core.start()
 
-        tray = TrayApp(core)
+        control_center = ControlCenterManager(core)
+        core.ui_show_tab_callback = control_center.show
+
+        tray = TrayApp(core, control_center=control_center)
+        tray.start()
+
         try:
-            tray.run()  # blocks until Exit is chosen
+            # Main Control Center opens immediately on the main thread
+            control_center.start_main_loop(initial_tab="overview")
         finally:
+            tray.stop()
             core.stop()
             instance_guard.release()
             logger.info("Ghost OS shut down.")

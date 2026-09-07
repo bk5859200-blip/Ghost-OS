@@ -1,5 +1,7 @@
 import os
 import subprocess
+import threading
+import logging
 import pystray
 from PIL import Image, ImageDraw
 
@@ -10,6 +12,8 @@ from src.core.ghost_core import (
 )
 from src.ui.control_center import ControlCenterManager
 
+logger = logging.getLogger("ghost.tray")
+
 
 def _build_ghost_icon(color=(140, 120, 255)):
     """Loads bundled Ghost icon or falls back to procedural ghost silhouette."""
@@ -17,8 +21,8 @@ def _build_ghost_icon(color=(140, 120, 255)):
     if os.path.exists(icon_path):
         try:
             return Image.open(icon_path)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Could not load bundled ghost icon asset: {e}")
 
     size = 64
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
@@ -48,12 +52,13 @@ class TrayApp:
         STATE_STARTING: "⏳ STARTING"
     }
 
-    def __init__(self, ghost_core, quarantine_dir=None):
+    def __init__(self, ghost_core, quarantine_dir=None, control_center=None):
         self.core = ghost_core
         self.quarantine_dir = quarantine_dir or PathManager.get_quarantine_dir()
-        self.control_center = ControlCenterManager(self.core)
+        self.control_center = control_center or ControlCenterManager(self.core)
         self.core.ui_show_tab_callback = self.control_center.show
         self.icon = None
+        self._tray_thread = None
 
     def _open_native_folder(self, folder_path):
         """Opens a local folder in Windows Explorer."""
@@ -65,8 +70,8 @@ class TrayApp:
             else:
                 from src.core.proc_utils import popen_hidden
                 popen_hidden(['xdg-open', abs_path])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to open native folder {abs_path}: {e}")
 
     def _status_text(self, item):
         state = self.core.get_health_state()
@@ -107,8 +112,12 @@ class TrayApp:
             self.icon.update_menu()
 
     def _exit(self, icon, item):
+        logger.info("Exit selected from system tray menu.")
         self.core.stop()
-        icon.stop()
+        if self.control_center:
+            self.control_center.exit_app()
+        if icon:
+            icon.stop()
 
     def build_menu(self):
         return pystray.Menu(
@@ -128,6 +137,22 @@ class TrayApp:
             pystray.MenuItem("Exit Ghost OS", self._exit),
         )
 
+    def start(self):
+        """Starts the system tray icon on a dedicated background daemon thread."""
+        self._tray_thread = threading.Thread(target=self.run, name="ghost_tray_thread", daemon=True)
+        self._tray_thread.start()
+        logger.info("System tray icon thread started.")
+
+    def stop(self):
+        """Stops the system tray icon."""
+        if self.icon:
+            try:
+                self.icon.stop()
+            except Exception as e:
+                logger.debug(f"Error stopping tray icon: {e}")
+        self.icon = None
+
     def run(self):
+        """Runs the pystray message loop."""
         self.icon = pystray.Icon("GhostOS", _build_ghost_icon(), "Ghost OS 👻", self.build_menu())
         self.icon.run()

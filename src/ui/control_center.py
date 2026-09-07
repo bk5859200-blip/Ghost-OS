@@ -2,6 +2,8 @@ import os
 import sys
 import time
 import json
+import logging
+import traceback
 import threading
 import subprocess
 import tkinter as tk
@@ -11,6 +13,8 @@ from src.core.path_manager import PathManager
 from src.core.config_loader import load_config, ConfigError
 from src.actions.scan_job import ManualScanJob
 from src.actions.diagnostics_job import DiagnosticsJob
+
+logger = logging.getLogger("ghost.ui.control_center")
 
 # Theme Color Palette
 BG_DARK = "#181825"
@@ -461,8 +465,8 @@ class ControlCenterApp:
 
             # Draw sparkline trend
             self._draw_sparkline()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Telemetry update error: {e}")
 
     def _draw_sparkline(self):
         try:
@@ -501,8 +505,8 @@ class ControlCenterApp:
                 self.canvas_trend.create_line(*cpu_pts, fill="#89b4fa", width=2, smooth=True)
             if len(ram_pts) >= 4:
                 self.canvas_trend.create_line(*ram_pts, fill="#cba6f7", width=2, smooth=True)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Sparkline render error: {e}")
 
     def _toggle_pause(self):
         if self.core._pause_event.is_set():
@@ -798,8 +802,8 @@ class ControlCenterApp:
                     popen_hidden(["explorer.exe", f"/select,{os.path.normpath(file_path)}"])
                 else:
                     os.startfile(folder)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"Failed to open explorer location for {file_path}: {e}")
 
     def _dismiss_scan_selection(self):
         selected = self.tree_scan.selection()
@@ -834,166 +838,186 @@ class ControlCenterApp:
 
 class ControlCenterManager:
     """
-    Manages opening and focusing the ControlCenter Tkinter GUI on a separate thread.
-    Thread-safe and supports tab switching and real-time interactive alert dialogs.
+    Manages the Control Center Tkinter GUI on the main thread.
+    Thread-safe and supports tab switching, hiding/restoring to system tray,
+    and real-time interactive alert dialogs without duplicate windows.
     """
 
     def __init__(self, ghost_core):
         self.core = ghost_core
         self._app = None
-        self._thread = None
         self._lock = threading.Lock()
 
-    def show(self, initial_tab="overview"):
-        with self._lock:
-            if self._app and self._app.root and self._app.root.winfo_exists():
-                self._app.root.after(0, lambda: self._focus_tab(initial_tab))
-            else:
-                self._thread = threading.Thread(
-                    target=self._run_ui,
-                    args=(initial_tab,),
-                    name="ghost_control_center_thread",
-                    daemon=True
-                )
-                self._thread.start()
-
-    def _focus_tab(self, tab):
-        if self._app and self._app.root and self._app.root.winfo_exists():
-            self._app._select_tab(tab)
-            self._app.root.deiconify()
-            self._app.root.lift()
-            self._app.root.focus_force()
-
-    def _run_ui(self, initial_tab):
+    def start_main_loop(self, initial_tab="overview"):
+        """
+        Initializes and runs the Control Center Tkinter mainloop on the calling (main) thread.
+        Displays the window immediately.
+        """
         try:
-            self._app = ControlCenterApp(self.core, initial_tab=initial_tab)
-            self._app.root.protocol("WM_DELETE_WINDOW", self._on_close)
+            logger.info(f"Initializing Control Center on thread: {threading.current_thread().name}")
+            with self._lock:
+                self._app = ControlCenterApp(self.core, initial_tab=initial_tab)
+                self._app.root.protocol("WM_DELETE_WINDOW", self._on_window_close)
+                self._app.root.deiconify()
+                self._app.root.lift()
+                self._app.root.focus_force()
+
+            logger.info("Control Center main loop starting.")
             self._app.root.mainloop()
+            logger.info("Control Center main loop ended.")
         except Exception as e:
-            pass
+            exc_type, exc_val, exc_tb = sys.exc_info()
+            thread_name = threading.current_thread().name
+            logger.critical(
+                f"Control Center encountered an unhandled exception during UI execution:\n"
+                f"Type: {exc_type.__name__ if exc_type else 'Unknown'}\n"
+                f"Message: {exc_val}\n"
+                f"Thread: {thread_name}\n"
+                f"State: {self.core.get_health_state()}\n"
+                f"Traceback:\n{''.join(traceback.format_exception(exc_type, exc_val, exc_tb))}"
+            )
+            raise
         finally:
             with self._lock:
                 self._app = None
 
-    def _on_close(self):
+    def show(self, initial_tab="overview"):
+        """
+        Thread-safe method to restore and bring the existing Control Center window to the front.
+        If the window is hidden/minimized, it restores it without creating duplicate roots.
+        """
         with self._lock:
             if self._app and self._app.root:
                 try:
-                    self._app.root.destroy()
-                except Exception:
-                    pass
-                self._app = None
+                    if self._app.root.winfo_exists():
+                        self._app.root.after(0, lambda: self._focus_tab(initial_tab))
+                        return
+                except Exception as e:
+                    logger.warning(f"Error checking root window state: {e}")
+
+        logger.debug(f"Control Center show({initial_tab}) requested but UI root is not active.")
+
+    def _focus_tab(self, tab):
+        """Executed on main thread via root.after()."""
+        try:
+            if self._app and self._app.root and self._app.root.winfo_exists():
+                self._app._select_tab(tab)
+                self._app.root.deiconify()
+                if self._app.root.state() == "iconic":
+                    self._app.root.state("normal")
+                self._app.root.lift()
+                self._app.root.focus_force()
+        except Exception as e:
+            logger.error(f"Failed to focus tab '{tab}': {e}", exc_info=True)
+
+    def _on_window_close(self):
+        """
+        When user clicks the 'X' button, hide to tray instead of destroying the application.
+        Background monitoring and tray continue running.
+        """
+        with self._lock:
+            if self._app and self._app.root:
+                try:
+                    if self._app.root.winfo_exists():
+                        self._app.root.withdraw()
+                        logger.info("Control Center window hidden to system tray.")
+                except Exception as e:
+                    logger.error(f"Error hiding window to tray: {e}", exc_info=True)
+
+    def exit_app(self):
+        """
+        Cleanly destroys the Tkinter UI and breaks the mainloop for application shutdown.
+        Can be safely invoked from tray or background threads.
+        """
+        with self._lock:
+            if self._app and self._app.root:
+                try:
+                    if self._app.root.winfo_exists():
+                        self._app.root.after(0, self._destroy_ui)
+                except Exception as e:
+                    logger.error(f"Error scheduling UI destruction: {e}", exc_info=True)
+
+    def _destroy_ui(self):
+        """Executed on the main thread."""
+        try:
+            if self._app and self._app.root and self._app.root.winfo_exists():
+                logger.info("Destroying Control Center Tkinter root window.")
+                self._app.root.destroy()
+        except Exception as e:
+            logger.error(f"Error destroying Tkinter root: {e}", exc_info=True)
+        finally:
+            self._app = None
 
     def prompt_security_alert(self, event_id, file_path, reason, severity):
         """Displays an interactive alert popup asking user to Quarantine, Delete, or Let It Be (Ignore)."""
         def show_dialog():
-            dialog = tk.Toplevel()
-            dialog.title("👻 Ghost OS Security Alert")
-            dialog.geometry("520x260")
-            dialog.minsize(480, 240)
-            dialog.configure(bg=BG_DARK)
-            dialog.attributes("-topmost", True)
-            dialog.lift()
+            try:
+                parent = self._app.root if (self._app and self._app.root and self._app.root.winfo_exists()) else None
+                dialog = tk.Toplevel(parent) if parent else tk.Tk()
+                dialog.title("👻 Ghost OS Security Alert")
+                dialog.geometry("520x260")
+                dialog.minsize(480, 240)
+                dialog.configure(bg=BG_DARK)
+                dialog.attributes("-topmost", True)
+                dialog.lift()
 
-            header = tk.Label(
-                dialog,
-                text="⚠ Suspicious / Unwanted File Detected",
-                bg=BG_DARK,
-                fg=ACCENT_RED,
-                font=("Segoe UI", 12, "bold")
-            )
-            header.pack(anchor="w", padx=20, pady=(15, 5))
+                header = tk.Label(
+                    dialog,
+                    text="⚠ Suspicious / Unwanted File Detected",
+                    bg=BG_DARK,
+                    fg=ACCENT_RED,
+                    font=("Segoe UI", 12, "bold")
+                )
+                header.pack(anchor="w", padx=20, pady=(15, 5))
 
-            msg_text = (
-                f"File: {os.path.basename(file_path)}\n"
-                f"Location: {file_path}\n"
-                f"Risk: {severity}\n"
-                f"Reason: {reason}\n\n"
-                f"Choose an action to take:"
-            )
-            lbl = tk.Label(
-                dialog,
-                text=msg_text,
-                bg=BG_DARK,
-                fg=FG_MAIN,
-                justify="left",
-                font=("Segoe UI", 9)
-            )
-            lbl.pack(anchor="w", padx=20, pady=5)
+                msg_text = (
+                    f"File: {os.path.basename(file_path)}\n"
+                    f"Location: {file_path}\n"
+                    f"Risk: {severity}\n"
+                    f"Reason: {reason}\n\n"
+                    f"Choose an action to take:"
+                )
+                lbl = tk.Label(
+                    dialog,
+                    text=msg_text,
+                    bg=BG_DARK,
+                    fg=FG_MAIN,
+                    justify="left",
+                    font=("Segoe UI", 9)
+                )
+                lbl.pack(anchor="w", padx=20, pady=5)
 
-            btn_frame = tk.Frame(dialog, bg=BG_DARK)
-            btn_frame.pack(fill="x", padx=20, pady=(15, 10))
+                btn_frame = tk.Frame(dialog, bg=BG_DARK)
+                btn_frame.pack(fill="x", padx=20, pady=(15, 10))
 
-            def on_quarantine():
-                dialog.destroy()
-                self.core._handle_user_response(event_id, file_path, "quarantine")
+                def on_quarantine():
+                    dialog.destroy()
+                    self.core._handle_user_response(event_id, file_path, "quarantine")
 
-            def on_delete():
-                dialog.destroy()
-                self.core._handle_user_response(event_id, file_path, "delete")
+                def on_delete():
+                    dialog.destroy()
+                    self.core._handle_user_response(event_id, file_path, "delete")
 
-            def on_ignore():
-                dialog.destroy()
-                self.core._handle_user_response(event_id, file_path, "ignore")
+                def on_ignore():
+                    dialog.destroy()
+                    self.core._handle_user_response(event_id, file_path, "ignore")
 
-            ttk.Button(btn_frame, text="🛡 Quarantine", style="Accent.TButton", command=on_quarantine).pack(side="left", padx=(0, 10))
-            ttk.Button(btn_frame, text="🗑 Delete", style="Danger.TButton", command=on_delete).pack(side="left", padx=(0, 10))
-            ttk.Button(btn_frame, text="✕ Let It Be (Ignore)", style="Secondary.TButton", command=on_ignore).pack(side="left")
+                ttk.Button(btn_frame, text="🛡 Quarantine", style="Accent.TButton", command=on_quarantine).pack(side="left", padx=(0, 10))
+                ttk.Button(btn_frame, text="🗑 Delete", style="Danger.TButton", command=on_delete).pack(side="left", padx=(0, 10))
+                ttk.Button(btn_frame, text="✕ Let It Be (Ignore)", style="Secondary.TButton", command=on_ignore).pack(side="left")
+
+                if not parent:
+                    dialog.mainloop()
+            except Exception as e:
+                exc_type, exc_val, exc_tb = sys.exc_info()
+                logger.error(
+                    f"Failed to display security alert dialog: {exc_type.__name__ if exc_type else 'Unknown'}: {exc_val}\n"
+                    f"Traceback:\n{''.join(traceback.format_exception(exc_type, exc_val, exc_tb))}"
+                )
 
         with self._lock:
             if self._app and self._app.root and self._app.root.winfo_exists():
                 self._app.root.after(0, show_dialog)
             else:
-                threading.Thread(target=lambda: self._run_standalone_alert(event_id, file_path, reason, severity), daemon=True).start()
-
-    def _run_standalone_alert(self, event_id, file_path, reason, severity):
-        try:
-            root = tk.Tk()
-            root.title("👻 Ghost OS Security Alert")
-            root.geometry("520x260")
-            root.minsize(480, 240)
-            root.configure(bg=BG_DARK)
-            root.attributes("-topmost", True)
-
-            style = ttk.Style(root)
-            style.theme_use("clam")
-            style.configure("Accent.TButton", background=ACCENT_PURPLE, foreground="#ffffff", font=("Segoe UI", 9, "bold"), borderwidth=0, padding=6)
-            style.configure("Danger.TButton", background=ACCENT_RED, foreground="#11111b", font=("Segoe UI", 9, "bold"), borderwidth=0, padding=6)
-            style.configure("Secondary.TButton", background=BG_INPUT, foreground=FG_MAIN, font=("Segoe UI", 9), borderwidth=0, padding=6)
-
-            header = tk.Label(root, text="⚠ Suspicious / Unwanted File Detected", bg=BG_DARK, fg=ACCENT_RED, font=("Segoe UI", 12, "bold"))
-            header.pack(anchor="w", padx=20, pady=(15, 5))
-
-            msg_text = (
-                f"File: {os.path.basename(file_path)}\n"
-                f"Location: {file_path}\n"
-                f"Risk: {severity}\n"
-                f"Reason: {reason}\n\n"
-                f"Choose an action to take:"
-            )
-            lbl = tk.Label(root, text=msg_text, bg=BG_DARK, fg=FG_MAIN, justify="left", font=("Segoe UI", 9))
-            lbl.pack(anchor="w", padx=20, pady=5)
-
-            btn_frame = tk.Frame(root, bg=BG_DARK)
-            btn_frame.pack(fill="x", padx=20, pady=(15, 10))
-
-            def on_quarantine():
-                root.destroy()
-                self.core._handle_user_response(event_id, file_path, "quarantine")
-
-            def on_delete():
-                root.destroy()
-                self.core._handle_user_response(event_id, file_path, "delete")
-
-            def on_ignore():
-                root.destroy()
-                self.core._handle_user_response(event_id, file_path, "ignore")
-
-            ttk.Button(btn_frame, text="🛡 Quarantine", style="Accent.TButton", command=on_quarantine).pack(side="left", padx=(0, 10))
-            ttk.Button(btn_frame, text="🗑 Delete", style="Danger.TButton", command=on_delete).pack(side="left", padx=(0, 10))
-            ttk.Button(btn_frame, text="✕ Let It Be (Ignore)", style="Secondary.TButton", command=on_ignore).pack(side="left")
-
-            root.mainloop()
-        except Exception:
-            pass
+                threading.Thread(target=show_dialog, name="ghost_alert_thread", daemon=True).start()
 

@@ -63,6 +63,7 @@ def main():
 
         control_center = ControlCenterManager(core)
         core.ui_show_tab_callback = control_center.show
+        core.ui_alert_callback = control_center.prompt_security_alert
 
         tray = TrayApp(core, control_center=control_center)
         tray.start()

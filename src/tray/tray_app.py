@@ -86,6 +86,9 @@ class TrayApp:
     def _quick_scan(self, icon, item):
         self.control_center.show("scan")
 
+    def _view_threats(self, icon, item):
+        self.control_center.show("threats")
+
     def _run_cleanup(self, icon, item):
         self.core.propose_cleanup()
 
@@ -125,8 +128,9 @@ class TrayApp:
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Control Center", self._open_control_center, default=True),
             pystray.MenuItem("Quick Scan", self._quick_scan),
-            pystray.MenuItem("Activity History", self._view_activity),
-            pystray.MenuItem("Quarantine Manager", self._open_quarantine),
+            pystray.MenuItem("Threats & Alerts", self._view_threats),
+            pystray.MenuItem("Activity Log", self._view_activity),
+            pystray.MenuItem("Quarantine Vault", self._open_quarantine),
             pystray.MenuItem("Clean System", self._run_cleanup),
             pystray.MenuItem("System Diagnostics", self._open_diagnostics),
             pystray.Menu.SEPARATOR,

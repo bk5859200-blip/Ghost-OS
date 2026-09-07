@@ -93,7 +93,8 @@ class GhostCore:
             enabled=notif_cfg.get("enabled", True),
             cooldown_seconds=notif_cfg.get("cooldown_seconds", 120),
             aggregate_window_seconds=notif_cfg.get("aggregate_window_seconds", 300),
-            db_mgr=self.db_mgr
+            db_mgr=self.db_mgr,
+            fallback_alert_handler=self._on_notification_fallback_alert
         )
 
         # Watchers
@@ -470,6 +471,15 @@ class GhostCore:
                     pass
         else:
             self.quarantine.ignore_event(event_id)
+
+    def _on_notification_fallback_alert(self, event_id, file_path, reason, severity):
+        """Invoked when a native Windows toast could not be displayed."""
+        logger.info(f"Triggering in-app fallback security alert for event {event_id}: {file_path}")
+        if hasattr(self, "ui_alert_callback") and self.ui_alert_callback:
+            try:
+                self.ui_alert_callback(event_id, file_path, reason, severity)
+            except Exception as e:
+                logger.error(f"Failed to invoke in-app security alert dialog: {e}")
 
     # ------------------------------------------------------------- Quick Scan
     def run_quick_scan(self):

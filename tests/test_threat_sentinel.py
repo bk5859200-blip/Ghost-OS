@@ -12,10 +12,14 @@ class MockDefenderScanner:
         self.available = True
         self.should_flag = should_flag
 
+    def is_available(self):
+        return self.available
+
     def scan_file(self, file_path):
         return {
             "scanned": True,
             "threat_found": self.should_flag,
+            "status": "threat_detected" if self.should_flag else "clean",
             "detail": "Mock malware detected" if self.should_flag else "Clean"
         }
 

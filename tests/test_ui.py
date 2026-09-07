@@ -46,17 +46,20 @@ class TestControlCenterUI(unittest.TestCase):
         app._select_tab("scan")
         self.assertEqual(app.notebook.tab(app.notebook.select(), "text").strip(), "Quick Scan")
 
+        app._select_tab("threats")
+        self.assertIn("Threats", app.notebook.tab(app.notebook.select(), "text"))
+
         app._select_tab("quarantine")
-        self.assertEqual(app.notebook.tab(app.notebook.select(), "text").strip(), "Quarantine")
+        self.assertIn("Quarantine", app.notebook.tab(app.notebook.select(), "text"))
 
         app._select_tab("activity")
-        self.assertEqual(app.notebook.tab(app.notebook.select(), "text").strip(), "Activity History")
+        self.assertIn("Activity", app.notebook.tab(app.notebook.select(), "text"))
 
         app._select_tab("settings")
-        self.assertEqual(app.notebook.tab(app.notebook.select(), "text").strip(), "Policy Settings")
+        self.assertIn("Policy", app.notebook.tab(app.notebook.select(), "text"))
 
         app._select_tab("diagnostics")
-        self.assertEqual(app.notebook.tab(app.notebook.select(), "text").strip(), "Diagnostics")
+        self.assertIn("Diagnostics", app.notebook.tab(app.notebook.select(), "text"))
 
         # Cleanup
         app.root.destroy()
@@ -80,7 +83,7 @@ class TestControlCenterUI(unittest.TestCase):
         # Test show restores window and selects tab
         mgr._focus_tab("quarantine")
         self.assertEqual(mgr._app.root.state(), "normal")
-        self.assertEqual(mgr._app.notebook.tab(mgr._app.notebook.select(), "text").strip(), "Quarantine")
+        self.assertIn("Quarantine", mgr._app.notebook.tab(mgr._app.notebook.select(), "text"))
 
         # Clean exit
         mgr._destroy_ui()

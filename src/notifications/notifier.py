@@ -26,19 +26,20 @@ class Notifier:
     """
 
     def __init__(self, app_name=GHOST_AUMID, cooldown_seconds=120,
-                 aggregate_window_seconds=300, enabled=True, db_mgr=None):
+                 aggregate_window_seconds=300, enabled=True, db_mgr=None, fallback_alert_handler=None):
         if sys.platform == "win32":
             try:
                 import ctypes
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(GHOST_AUMID)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"AUMID registration error: {e}")
 
         self.app_name = app_name or GHOST_AUMID
         self.enabled = enabled
         self.cooldown_seconds = cooldown_seconds
         self.aggregate_window_seconds = aggregate_window_seconds
         self.db_mgr = db_mgr
+        self.fallback_alert_handler = fallback_alert_handler
         self._last_sent = {}       # signal_key -> timestamp
         self._pending_counts = {}  # signal_key -> count
         self._lock = threading.Lock()
@@ -192,6 +193,12 @@ class Notifier:
 
         delivered = self._show_toast(toast)
         self._record(title, message, key, CAT_SECURITY, suppressed, delivered)
+
+        if not delivered and self.fallback_alert_handler:
+            try:
+                self.fallback_alert_handler(event_id, file_path, reason, severity)
+            except Exception as e:
+                logger.error(f"Fallback alert handler failed: {e}")
 
     def notify_quarantined(self, file_path, risk_score):
         if not self.enabled:

@@ -42,29 +42,32 @@ class TestControlCenterUI(unittest.TestCase):
         app = ControlCenterApp(self.core, initial_tab="overview")
         self.assertIsNotNone(app.root)
 
-        # Test tab switching
+        # Test tab switching across 8 standardized tabs
+        app._select_tab("overview")
+        self.assertIn("Overview", app.notebook.tab(app.notebook.select(), "text"))
+
         app._select_tab("scan")
-        self.assertEqual(app.notebook.tab(app.notebook.select(), "text").strip(), "Quick Scan")
-
-        app._select_tab("threats")
-        self.assertIn("Threats", app.notebook.tab(app.notebook.select(), "text"))
-
-        app._select_tab("quarantine")
-        self.assertIn("Quarantine", app.notebook.tab(app.notebook.select(), "text"))
+        self.assertIn("Security Scan", app.notebook.tab(app.notebook.select(), "text"))
 
         app._select_tab("cleanup")
         self.assertIn("Cleanup", app.notebook.tab(app.notebook.select(), "text"))
-        self.assertIsNotNone(app.tree_cleanup_hist)
+        self.assertIsNotNone(app.tree_cleanup_candidates)
         self.assertIsNotNone(app.lbl_cleanup_avail_size)
+
+        app._select_tab("quarantine")
+        self.assertIn("Quarantine", app.notebook.tab(app.notebook.select(), "text"))
 
         app._select_tab("activity")
         self.assertIn("Activity", app.notebook.tab(app.notebook.select(), "text"))
 
         app._select_tab("settings")
-        self.assertIn("Policy", app.notebook.tab(app.notebook.select(), "text"))
+        self.assertIn("Settings", app.notebook.tab(app.notebook.select(), "text"))
 
         app._select_tab("diagnostics")
-        self.assertIn("Diagnostics", app.notebook.tab(app.notebook.select(), "text"))
+        self.assertIn("Health", app.notebook.tab(app.notebook.select(), "text"))
+
+        app._select_tab("about")
+        self.assertIn("About", app.notebook.tab(app.notebook.select(), "text"))
 
         # Cleanup
         app.root.destroy()

@@ -13,10 +13,10 @@
 <br/>
 
 <p align="center">
-  <img src="assets/screenshot_overview.png" alt="Ghost OS Control Center" width="860">
+  <img src="assets/control-center-overview.png" alt="Ghost OS Control Center" width="860">
 </p>
 
-*Ghost OS Native Control Center — Real-time security status, telemetry sparklines, multi-signal threat visibility, quarantine vault, junk & temp cleanup, and subsystem diagnostics.*
+*Ghost OS Native Control Center — Real-time security status, 8 standardized management tabs, multi-signal threat visibility, quarantine vault, junk & temp cleanup, and subsystem diagnostics.*
 
 </div>
 
@@ -187,18 +187,18 @@ Resolve %TEMP%, %TMP%, %WINDIR%\Temp, %LOCALAPPDATA%\CrashDumps
 ---
 
 ### 7. 🖥️ Native Control Center
-A native, dark-themed Tkinter desktop interface that gives you complete visibility and control over your system:
+A native, dark-themed Tkinter desktop interface structured into 8 standardized management tabs:
 
 | Tab Name | Functionality |
 | :--- | :--- |
-| **Overview** | Protection status badge, live CPU/RAM/Disk gauges, 15-minute telemetry sparkline graph, 24-hour activity digest, and quick action triggers. |
-| **Quick Scan** | On-demand scanning of watch folders with real-time file-by-file progress, risk score badges, and itemized findings table. |
-| **Detections & Threats** | Categorized security findings filterable by `All`, `Threats`, `Suspicious`, and `Low Risk`, with explainable risk signal breakdowns. |
-| **Quarantine Vault** | Table of isolated files with SHA-256 hashes, original paths, and one-click file restoration or permanent deletion. |
-| **Junk & Temp Cleanup** | Live candidate discovery, space recovered metrics, target location list, safety badges, candidate review modal, and history table. |
-| **Activity Log** | Searchable audit trail of file events, process spawns, system changes, and cleanup executions filterable by category. |
-| **Policy Settings** | Built-in editor for `policy.yaml` with schema validation before saving to prevent corrupt configurations. |
-| **Diagnostics** | End-to-end subsystem health test suite verifying Defender CLI, Database, Sensors, Storage, and Watchers. |
+| **Overview** | Real-time system protection status badge, continuous monitoring state (`WATCHING`), metric cards (Threats, Quarantine, Cleanup candidates, CPU/RAM/Disk gauges), quick action buttons, and 4-hour away digest. |
+| **Security Scan** | On-demand threat scanning across watch folders with real-time file progress, risk score badges (0–100), findings table with classification breakdown, and one-click quarantine actions. |
+| **Junk & Temp Cleanup** | Safe candidate discovery across `%TEMP%`, `%TMP%`, `%WINDIR%\Temp`, and `%LOCALAPPDATA%\CrashDumps`, categorized candidate treeview (`SAFE TO CLEAN`, `IN USE`, `TOO RECENT`, `PROTECTED`, `SKIPPED`), item selection, and space recovery metrics. |
+| **Quarantine** | Isolated vault table displaying original locations, detection reasons, severity, timestamps, SHA-256 cryptographic hashes, and safe file restoration or permanent deletion. |
+| **Activity** | Searchable and categorized audit trail of security events, process spawns, cleanup runs, and system logs filterable by `ALL`, `SECURITY`, `CLEANUP`, `QUARANTINE`, `SYSTEM`, and `ERRORS`. |
+| **Settings** | User-friendly form controls for Monitoring, Threat Detection, Junk & Temp Cleanup, Safety & Protection, Windows Startup, plus an Advanced raw YAML policy editor with schema validation. |
+| **System Health** | Comprehensive 10-subsystem diagnostic health checklist with pass/warning/fail badges, execution latency, human-readable explanations, and non-blocking background execution. |
+| **About** | Application release version, architecture notes, local database path, active guardian mode, safety rules, and project metadata. |
 
 ---
 

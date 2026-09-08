@@ -127,7 +127,8 @@ class DesktopWatcher:
 
     def start(self):
         """Starts the filesystem observer for all existing target folders."""
-        self._active_folders = [f for f in self.raw_folders if os.path.exists(f)]
+        expanded = [os.path.abspath(os.path.expandvars(os.path.expanduser(f))) for f in self.raw_folders]
+        self._active_folders = [f for f in expanded if os.path.exists(f)]
         if not self._active_folders:
             logger.warning("No valid watch folders found to monitor.")
             return

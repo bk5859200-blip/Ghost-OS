@@ -72,7 +72,7 @@ class TestStartupLifecycle(unittest.TestCase):
         # Duplicate show call should refocus rather than create new instances
         mgr.show("diagnostics")
         mgr._focus_tab("diagnostics")
-        self.assertEqual(mgr._app.notebook.tab(mgr._app.notebook.select(), "text").strip(), "Diagnostics")
+        self.assertIn("Health", mgr._app.notebook.tab(mgr._app.notebook.select(), "text"))
         self.assertEqual(mgr._app.root.state(), "normal")
 
         mgr._destroy_ui()
@@ -95,7 +95,7 @@ class TestStartupLifecycle(unittest.TestCase):
         mgr.show("scan")
         mgr._focus_tab("scan")
         self.assertEqual(mgr._app.root.state(), "normal")
-        self.assertEqual(mgr._app.notebook.tab(mgr._app.notebook.select(), "text").strip(), "Quick Scan")
+        self.assertIn("Scan", mgr._app.notebook.tab(mgr._app.notebook.select(), "text"))
 
         mgr._destroy_ui()
 

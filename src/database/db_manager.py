@@ -407,6 +407,171 @@ class DBManager:
             conn.commit()
             return cursor.lastrowid
 
+    def get_unified_activity(self, limit=100, category_filter="ALL"):
+        """
+        Aggregates and formats unified, human-readable activity timeline entries
+        across guardian detections, cleanup events, quarantine logs, anomalies, and notifications.
+        Supported filters: 'ALL', 'SECURITY', 'CLEANUP', 'QUARANTINE', 'SYSTEM', 'ERRORS'.
+        """
+        self.flush()
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        feed = []
+        cat_filter = str(category_filter).upper().strip()
+
+        # 1. Security & Guardian Events
+        if cat_filter in ("ALL", "SECURITY", "ERRORS"):
+            try:
+                cursor.execute("""
+                    SELECT timestamp, file_path, detector, reason, severity, classification, risk_score, status
+                    FROM guardian_events ORDER BY id DESC LIMIT ?
+                """, (limit,))
+                for r in cursor.fetchall():
+                    fname = os.path.basename(r["file_path"])
+                    cls_desc = str(r["classification"]).replace("_", " ").upper()
+                    status_desc = f" [{r['status'].upper()}]" if r["status"] != "pending" else ""
+                    feed.append({
+                        "timestamp": r["timestamp"],
+                        "category": "SECURITY",
+                        "severity": r["severity"],
+                        "title": f"Security Detection: {fname}",
+                        "description": f"{cls_desc} ({r['risk_score']}/100) detected by {r['detector']}. {r['reason']}{status_desc}",
+                        "details": r["file_path"]
+                    })
+            except Exception as e:
+                logger.debug(f"Error fetching guardian activity: {e}")
+
+        # 2. Cleanup Events
+        if cat_filter in ("ALL", "CLEANUP"):
+            try:
+                cursor.execute("""
+                    SELECT timestamp, files_removed, dirs_removed, space_recovered_mb, dry_run, files_examined, files_skipped_in_use, errors_count
+                    FROM cleanup_events ORDER BY id DESC LIMIT ?
+                """, (limit,))
+                for r in cursor.fetchall():
+                    mode = "Simulated" if r["dry_run"] else "Removed"
+                    skipped_note = f" ({r['files_skipped_in_use']} files in-use skipped)" if r["files_skipped_in_use"] > 0 else ""
+                    err_note = f" (Errors: {r['errors_count']})" if r["errors_count"] > 0 else ""
+                    feed.append({
+                        "timestamp": r["timestamp"],
+                        "category": "CLEANUP",
+                        "severity": "INFO" if r["errors_count"] == 0 else "WARNING",
+                        "title": f"Temporary Junk Cleanup ({mode})",
+                        "description": f"{mode} {r['files_removed']} files & {r['dirs_removed']} dirs. Recovered {r['space_recovered_mb']:.1f} MB.{skipped_note}{err_note}",
+                        "details": f"Examined {r['files_examined']} total candidate files."
+                    })
+            except Exception as e:
+                logger.debug(f"Error fetching cleanup activity: {e}")
+
+        # 3. Quarantine Events
+        if cat_filter in ("ALL", "QUARANTINE", "SECURITY"):
+            try:
+                cursor.execute("""
+                    SELECT quarantined_at as timestamp, original_path, quarantine_path, file_size, restored, restored_at
+                    FROM quarantine_log ORDER BY id DESC LIMIT ?
+                """, (limit,))
+                for r in cursor.fetchall():
+                    fname = os.path.basename(r["original_path"])
+                    size_kb = round(r["file_size"] / 1024, 1)
+                    if r["restored"]:
+                        feed.append({
+                            "timestamp": r["restored_at"] or r["timestamp"],
+                            "category": "QUARANTINE",
+                            "severity": "INFO",
+                            "title": f"File Restored: {fname}",
+                            "description": f"Restored from quarantine vault back to {r['original_path']}",
+                            "details": r["original_path"]
+                        })
+                    else:
+                        feed.append({
+                            "timestamp": r["timestamp"],
+                            "category": "QUARANTINE",
+                            "severity": "WARNING",
+                            "title": f"File Quarantined: {fname}",
+                            "description": f"Safely isolated {size_kb} KB file into secure quarantine storage.",
+                            "details": r["original_path"]
+                        })
+            except Exception as e:
+                logger.debug(f"Error fetching quarantine activity: {e}")
+
+        # 4. System Anomalies & Performance
+        if cat_filter in ("ALL", "SYSTEM", "ERRORS"):
+            try:
+                cursor.execute("""
+                    SELECT timestamp, source, entity_name, anomaly_type, score, description
+                    FROM anomalies ORDER BY id DESC LIMIT ?
+                """, (limit,))
+                for r in cursor.fetchall():
+                    sev = "WARNING" if r["score"] > 80 else "INFO"
+                    feed.append({
+                        "timestamp": r["timestamp"],
+                        "category": "SYSTEM",
+                        "severity": sev,
+                        "title": f"System Anomaly ({r['entity_name']})",
+                        "description": f"{r['anomaly_type']}: {r['description']} (Score: {r['score']})",
+                        "details": f"Source: {r['source']}"
+                    })
+            except Exception as e:
+                logger.debug(f"Error fetching anomaly activity: {e}")
+
+        # 5. Anomalous Process Starts
+        if cat_filter in ("ALL", "SYSTEM", "SECURITY"):
+            try:
+                cursor.execute("""
+                    SELECT timestamp, name, pid, exe_path, parent_name
+                    FROM process_events WHERE anomaly_flag = 1 ORDER BY id DESC LIMIT ?
+                """, (limit,))
+                for r in cursor.fetchall():
+                    parent = f" by {r['parent_name']}" if r['parent_name'] else ""
+                    feed.append({
+                        "timestamp": r["timestamp"],
+                        "category": "SYSTEM",
+                        "severity": "HIGH",
+                        "title": f"Anomalous Process Spawn: {r['name']}",
+                        "description": f"Process {r['name']} (PID: {r['pid']}) spawned{parent}.",
+                        "details": r["exe_path"] or r["name"]
+                    })
+            except Exception as e:
+                logger.debug(f"Error fetching process activity: {e}")
+
+        # Filter by ERRORS if selected
+        if cat_filter == "ERRORS":
+            feed = [item for item in feed if str(item.get("severity", "")).upper() in ("HIGH", "CRITICAL", "ERROR", "WARNING")]
+
+        # Sort all feed items chronologically descending
+        feed.sort(key=lambda x: x["timestamp"], reverse=True)
+        return feed[:limit]
+
+    def clear_activity_history(self, category_filter="ALL"):
+        """Safely purges historical events based on category filter."""
+        self.flush()
+        with self._lock:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cat = str(category_filter).upper().strip()
+
+            if cat == "ALL":
+                cursor.execute("DELETE FROM guardian_events;")
+                cursor.execute("DELETE FROM cleanup_events;")
+                cursor.execute("DELETE FROM anomalies;")
+                cursor.execute("DELETE FROM notifications;")
+                cursor.execute("DELETE FROM process_events WHERE anomaly_flag = 1;")
+            elif cat == "SECURITY":
+                cursor.execute("DELETE FROM guardian_events;")
+            elif cat == "CLEANUP":
+                cursor.execute("DELETE FROM cleanup_events;")
+            elif cat == "QUARANTINE":
+                cursor.execute("DELETE FROM quarantine_log WHERE restored = 1;")
+            elif cat == "SYSTEM":
+                cursor.execute("DELETE FROM anomalies;")
+                cursor.execute("DELETE FROM process_events;")
+            elif cat == "ERRORS":
+                cursor.execute("DELETE FROM anomalies WHERE score > 80;")
+                cursor.execute("DELETE FROM guardian_events WHERE severity IN ('HIGH', 'CRITICAL');")
+
+            conn.commit()
+            return True
+
     def get_recent_events(self, limit=50):
         self.flush()
         conn = self.get_connection()

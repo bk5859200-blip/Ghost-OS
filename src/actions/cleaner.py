@@ -49,7 +49,6 @@ class SystemCleaner:
             os.path.join(local_app_data, "CrashDumps")
         ]
 
-        # Normalize, deduplicate case-insensitively, and keep only existing directories
         seen_normalized = set()
         resolved_roots = []
 
@@ -80,11 +79,21 @@ class SystemCleaner:
             return "Cache"
         return "Temporary"
 
+    def _is_file_locked(self, file_path):
+        """Checks non-intrusively whether a file is currently opened/locked by another process."""
+        try:
+            # Attempt to open exclusively or read without modifying
+            with open(file_path, "rb"):
+                pass
+            return False
+        except (PermissionError, OSError):
+            return True
+
     def discover(self, min_age_hours=None):
         """
-        Discovers cleanup candidates across allowed disposable roots.
+        Discovers safe cleanup candidates across allowed disposable roots.
         Applies strict age filtering (default > 24 hours) and safety checks.
-        Returns a list of candidate dicts.
+        Returns a list of candidate dicts ready for removal.
         """
         age_hours = self.default_min_age_hours if min_age_hours is None else min_age_hours
         min_age_seconds = age_hours * 3600.0
@@ -98,9 +107,7 @@ class SystemCleaner:
             if not os.path.exists(root) or not os.path.isdir(root):
                 continue
 
-            # Traverse directory recursively
             for dirpath, dirnames, filenames in os.walk(root, topdown=True):
-                # Verify current dirpath is inside allowed disposable roots
                 if not self.safety_engine.validate_path(dirpath, self.disposable_roots):
                     continue
 
@@ -108,7 +115,6 @@ class SystemCleaner:
                     files_examined += 1
                     file_path = os.path.join(dirpath, fname)
 
-                    # Strictly validate path containment and protection
                     if not self.safety_engine.validate_path(file_path, self.disposable_roots):
                         continue
                     if self.safety_engine.is_path_protected(file_path):
@@ -119,7 +125,6 @@ class SystemCleaner:
                         mtime = st.st_mtime
                         age_sec = now - mtime
 
-                        # Age threshold filter: preserve newer files (< min_age_hours)
                         if min_age_seconds > 0 and age_sec < min_age_seconds:
                             files_skipped_new += 1
                             continue
@@ -139,7 +144,7 @@ class SystemCleaner:
                             "size_mb": round(size / (1024 * 1024), 3),
                             "category": category,
                             "reason": reason,
-                            "status": "SAFE TO REMOVE",
+                            "status": "SAFE TO CLEAN",
                             "is_dir": False,
                             "mtime": mtime,
                             "age_hours": age_h,
@@ -153,6 +158,151 @@ class SystemCleaner:
         self._last_examined = files_examined
         self._last_skipped_new = files_skipped_new
         return candidates
+
+    def discover_detailed(self, min_age_hours=None):
+        """
+        Discovers all files in disposable roots and categorizes them with detailed status indicators:
+        - SAFE TO CLEAN
+        - IN USE
+        - TOO RECENT
+        - PROTECTED
+        - SKIPPED
+        Used for rich interactive breakdown in the Junk & Temp Cleanup tab.
+        """
+        age_hours = self.default_min_age_hours if min_age_hours is None else min_age_hours
+        min_age_seconds = age_hours * 3600.0
+        now = time.time()
+
+        all_items = []
+        files_examined = 0
+        files_skipped_new = 0
+
+        for root in self.disposable_roots:
+            if not os.path.exists(root) or not os.path.isdir(root):
+                continue
+
+            for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+                is_valid_dir = self.safety_engine.validate_path(dirpath, self.disposable_roots)
+
+                for fname in filenames:
+                    files_examined += 1
+                    file_path = os.path.join(dirpath, fname)
+                    category = self._classify_item(file_path)
+
+                    if not is_valid_dir or not self.safety_engine.validate_path(file_path, self.disposable_roots):
+                        all_items.append({
+                            "path": file_path,
+                            "name": fname,
+                            "size": 0,
+                            "size_mb": 0.0,
+                            "category": category,
+                            "reason": "Outside allowed disposable roots",
+                            "status": "SKIPPED",
+                            "is_dir": False,
+                            "mtime": now,
+                            "age_hours": 0.0,
+                            "age_display": "0h",
+                            "root_folder": root
+                        })
+                        continue
+
+                    if self.safety_engine.is_path_protected(file_path):
+                        all_items.append({
+                            "path": file_path,
+                            "name": fname,
+                            "size": 0,
+                            "size_mb": 0.0,
+                            "category": category,
+                            "reason": "Protected system path or file",
+                            "status": "PROTECTED",
+                            "is_dir": False,
+                            "mtime": now,
+                            "age_hours": 0.0,
+                            "age_display": "0h",
+                            "root_folder": root
+                        })
+                        continue
+
+                    try:
+                        st = os.stat(file_path)
+                        mtime = st.st_mtime
+                        age_sec = now - mtime
+                        size = st.st_size
+                        age_h = round(age_sec / 3600.0, 1)
+                        age_days = round(age_h / 24.0, 1)
+                        age_desc = f"{age_days}d old" if age_days >= 1.0 else f"{age_h}h old"
+
+                        if min_age_seconds > 0 and age_sec < min_age_seconds:
+                            files_skipped_new += 1
+                            all_items.append({
+                                "path": file_path,
+                                "name": fname,
+                                "size": size,
+                                "size_mb": round(size / (1024 * 1024), 3),
+                                "category": category,
+                                "reason": f"Active recent file (<{age_hours}h old)",
+                                "status": "TOO RECENT",
+                                "is_dir": False,
+                                "mtime": mtime,
+                                "age_hours": age_h,
+                                "age_display": age_desc,
+                                "root_folder": root
+                            })
+                            continue
+
+                        # Check if file is locked / in-use
+                        if self._is_file_locked(file_path):
+                            all_items.append({
+                                "path": file_path,
+                                "name": fname,
+                                "size": size,
+                                "size_mb": round(size / (1024 * 1024), 3),
+                                "category": category,
+                                "reason": "Currently opened / locked by an active process",
+                                "status": "IN USE",
+                                "is_dir": False,
+                                "mtime": mtime,
+                                "age_hours": age_h,
+                                "age_display": age_desc,
+                                "root_folder": root
+                            })
+                            continue
+
+                        # File is stale and unlocked -> SAFE TO CLEAN
+                        reason = f"Stale {category.lower()} (>24h)" if age_h >= 24.0 else f"Disposable {category.lower()}"
+                        all_items.append({
+                            "path": file_path,
+                            "name": fname,
+                            "size": size,
+                            "size_mb": round(size / (1024 * 1024), 3),
+                            "category": category,
+                            "reason": reason,
+                            "status": "SAFE TO CLEAN",
+                            "is_dir": False,
+                            "mtime": mtime,
+                            "age_hours": age_h,
+                            "age_display": age_desc,
+                            "root_folder": root
+                        })
+                    except (PermissionError, OSError):
+                        all_items.append({
+                            "path": file_path,
+                            "name": fname,
+                            "size": 0,
+                            "size_mb": 0.0,
+                            "category": category,
+                            "reason": "Locked or inaccessible",
+                            "status": "IN USE",
+                            "is_dir": False,
+                            "mtime": now,
+                            "age_hours": 0.0,
+                            "age_display": "0h",
+                            "root_folder": root
+                        })
+
+        self._last_examined = files_examined
+        self._last_skipped_new = files_skipped_new
+        return all_items
 
     def preview(self, min_age_hours=None):
         """
@@ -225,14 +375,12 @@ class SystemCleaner:
                         bytes_recovered += size
                         categories_recovered[category] = categories_recovered.get(category, 0) + 1
                     elif is_dir and os.path.isdir(path):
-                        # Only delete directories if they are strictly subdirectories of disposable roots
                         if not any(os.path.samefile(path, r) for r in self.disposable_roots if os.path.exists(r)):
                             shutil.rmtree(path)
                             dirs_removed += 1
                             bytes_recovered += size
                             categories_recovered[category] = categories_recovered.get(category, 0) + 1
                 except (PermissionError, OSError) as e:
-                    # In-use / locked file — skip cleanly without process killing
                     files_skipped_in_use += 1
                     logger.debug(f"Skipping locked/in-use temporary file: {path} ({e})")
                 except Exception as e:
@@ -248,7 +396,6 @@ class SystemCleaner:
             if idx % batch_size == 0 and idx < len(candidates):
                 time.sleep(pause_between_batches)
 
-        # In live mode, clean leftover empty subdirectories within disposable roots
         dry_run = self.safety_engine.dry_run
         if not dry_run:
             dirs_removed += self._prune_empty_subdirs()
@@ -298,7 +445,6 @@ class SystemCleaner:
             if not os.path.exists(root) or not os.path.isdir(root):
                 continue
             for dirpath, dirnames, filenames in os.walk(root, topdown=False):
-                # Never delete the root directory itself
                 try:
                     if os.path.samefile(dirpath, root):
                         continue
@@ -306,7 +452,6 @@ class SystemCleaner:
                     if os.path.normpath(dirpath).lower() == os.path.normpath(root).lower():
                         continue
 
-                # Check if directory is empty
                 try:
                     if not os.listdir(dirpath):
                         allowed, _ = self.safety_engine.gate_action("cleanup_delete", dirpath)

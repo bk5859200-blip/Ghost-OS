@@ -237,29 +237,44 @@ class Notifier:
         delivered = self._show_toast(toast)
         self._record(title, message, f"quarantine:{file_path}", CAT_QUARANTINE, 0, delivered)
 
-    def notify_cleanup_proposal(self, count, size_mb, on_review, on_later):
+    def notify_cleanup_proposal(self, count, size_mb, on_review, on_clean_now=None, on_later=None):
         if not self.enabled:
             return
-        title = "👻 Ghost OS"
-        message = f"{size_mb:.1f} MB of removable temporary data was found ({count} items).\nReview cleanup?"
+        title = "👻 Ghost OS — Temporary Cleanup"
+        message = f"Temporary files are ready to clean.\n{count} items ({size_mb:.1f} MB) recoverable."
+
+        key = "cleanup:proposal"
+        send_now, suppressed = self._should_send(key)
+        if not send_now:
+            return
 
         toast = None
         if self.toaster:
             from windows_toasts import Toast, ToastButton, ToastActivatedEventArgs
             toast = Toast([title, message])
             toast.AddAction(ToastButton("Review", "cleanup_review"))
+            if on_clean_now:
+                toast.AddAction(ToastButton("Clean Now", "cleanup_clean_now"))
             toast.AddAction(ToastButton("Later", "cleanup_later"))
 
             def _on_activated(activated_event: ToastActivatedEventArgs):
-                if activated_event.arguments == "cleanup_review":
-                    on_review()
+                arg = getattr(activated_event, "arguments", "")
+                if arg == "cleanup_review":
+                    if on_review:
+                        on_review()
+                elif arg == "cleanup_clean_now":
+                    if on_clean_now:
+                        on_clean_now()
+                    elif on_review:
+                        on_review()
                 else:
-                    on_later()
+                    if on_later:
+                        on_later()
 
             toast.on_activated = _on_activated
 
         delivered = self._show_toast(toast)
-        self._record(title, message, "cleanup:proposal", CAT_CLEANUP, 0, delivered)
+        self._record(title, message, key, CAT_CLEANUP, suppressed, delivered)
 
     def notify_cleanup_complete(self, files_removed, space_recovered_mb):
         if not self.enabled:

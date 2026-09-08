@@ -46,35 +46,42 @@ class ProcessMonitor:
         process_list = []
         attrs = ['pid', 'name', 'cpu_percent', 'memory_info', 'status', 'ppid', 'exe', 'num_threads']
 
-        for proc in psutil.process_iter(attrs):
-            try:
-                info = proc.info
-                mem_rss = info['memory_info'].rss / (1024 * 1024) if info['memory_info'] else 0.0
-                pid = info['pid']
-                name = info['name'] or "Unknown"
-                ppid = info.get('ppid')
-                exe = info.get('exe')
-                threads = info.get('num_threads') or 1
-                cpu_pct = info.get('cpu_percent') or 0.0
+        try:
+            for proc in psutil.process_iter(attrs):
+                try:
+                    info = proc.info
+                    if not info:
+                        continue
+                    mem_rss = info['memory_info'].rss / (1024 * 1024) if info.get('memory_info') else 0.0
+                    pid = info.get('pid')
+                    if pid is None:
+                        continue
+                    name = info.get('name') or "Unknown"
+                    ppid = info.get('ppid')
+                    exe = info.get('exe')
+                    threads = info.get('num_threads') or 1
+                    cpu_pct = info.get('cpu_percent') or 0.0
 
-                # Lazy parent resolution: only resolve parent process for suspicious child candidates
-                parent_name = None
-                if ppid and name.lower() in self.SUSPICIOUS_CHILDREN:
-                    parent_name = self._resolve_parent_name(ppid)
+                    # Lazy parent resolution: only resolve parent process for suspicious child candidates
+                    parent_name = None
+                    if ppid and name.lower() in self.SUSPICIOUS_CHILDREN:
+                        parent_name = self._resolve_parent_name(ppid)
 
-                process_list.append({
-                    "pid": pid,
-                    "name": name,
-                    "cpu_percent": cpu_pct,
-                    "memory_rss_mb": round(mem_rss, 2),
-                    "status": info['status'] or "unknown",
-                    "parent_pid": ppid,
-                    "parent_name": parent_name,
-                    "exe_path": exe,
-                    "num_threads": threads
-                })
-            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
-                continue
+                    process_list.append({
+                        "pid": pid,
+                        "name": name,
+                        "cpu_percent": cpu_pct,
+                        "memory_rss_mb": round(mem_rss, 2),
+                        "status": info.get('status') or "unknown",
+                        "parent_pid": ppid,
+                        "parent_name": parent_name,
+                        "exe_path": exe,
+                        "num_threads": threads
+                    })
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess, OSError, KeyError, AttributeError):
+                    continue
+        except Exception as e:
+            logger.debug("Error during process iteration: %s", e)
 
         return process_list
 

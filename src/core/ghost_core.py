@@ -401,6 +401,15 @@ class GhostCore:
                                 if auto_clean:
                                     res = self.cleaner.execute(candidates)
                                     logger.info(f"Periodic auto-cleanup freed {res.get('space_recovered_mb')} MB ({res.get('files_removed')} files).")
+                                else:
+                                    # Propose cleanup via non-intrusive notification
+                                    self.notifier.notify_cleanup_proposal(
+                                        file_count,
+                                        total_size_mb,
+                                        on_review=lambda: self._trigger_ui_tab("cleanup"),
+                                        on_clean_now=lambda: self._run_cleanup(candidates),
+                                        on_later=lambda: None
+                                    )
             except Exception as e:
                 logger.debug(f"Periodic cleanup loop error: {e}")
 
@@ -504,13 +513,17 @@ class GhostCore:
             if allowed:
                 self.quarantine.delete_file(event_id, file_path)
         elif action == "details":
-            if hasattr(self, "ui_show_tab_callback") and self.ui_show_tab_callback:
-                try:
-                    self.ui_show_tab_callback("activity")
-                except Exception:
-                    pass
+            self._trigger_ui_tab("activity")
         else:
             self.quarantine.ignore_event(event_id)
+
+    def _trigger_ui_tab(self, tab_name):
+        """Safely invokes UI tab switch callback if registered by the UI."""
+        if hasattr(self, "ui_show_tab_callback") and self.ui_show_tab_callback:
+            try:
+                self.ui_show_tab_callback(tab_name)
+            except Exception as e:
+                logger.debug(f"Failed to switch UI tab to '{tab_name}': {e}")
 
     def _on_notification_fallback_alert(self, event_id, file_path, reason, severity):
         """Invoked when a native Windows toast could not be displayed."""

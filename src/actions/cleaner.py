@@ -9,104 +9,156 @@ logger = logging.getLogger("ghost.actions.cleaner")
 
 class SystemCleaner:
     """
-    Safe cleanup pipeline:
-      DISCOVER -> CLASSIFY -> SAFETY CHECK -> CALCULATE SIZE -> PREVIEW -> ACTION -> LOG
-    Only operates on strictly verified disposable locations.
+    Safe Windows Temporary / Junk File Cleanup Pipeline:
+      DISCOVER -> CLASSIFY -> AGE FILTER -> SAFETY CHECK -> PREVIEW -> BATCH EXECUTE -> LOG
+
+    Safety Guarantees:
+      - Only operates on strictly verified Windows disposable locations (%TEMP%, %TMP%, %WINDIR%\\Temp, CrashDumps).
+      - Applies age filtering (default > 24 hours) so active/recent temporary files are never disturbed.
+      - Skips locked or in-use files gracefully without force-terminating any processes.
+      - Never deletes disposable root directories or protected system files.
+      - Gated by SafetyEngine and strictly honors dry_run mode.
+      - Never classifies temporary/junk files as security threats.
     """
 
-    def __init__(self, safety_engine, db_mgr=None, require_confirmation=True):
+    def __init__(self, safety_engine, db_mgr=None, require_confirmation=True, min_age_hours=24):
         self.safety_engine = safety_engine
         self.db_mgr = db_mgr
         self.require_confirmation = require_confirmation
+        self.default_min_age_hours = min_age_hours
+        self._last_skipped_new = 0
+        self._last_examined = 0
 
+        self.disposable_roots = self._discover_disposable_roots()
+
+    def _discover_disposable_roots(self):
+        """
+        Dynamically discovers and normalizes standard Windows temporary locations
+        without hardcoding specific user names.
+        """
         home = os.path.expanduser("~")
         local_app_data = os.environ.get("LOCALAPPDATA", os.path.join(home, "AppData", "Local"))
-        windows_dir = os.environ.get("SystemRoot", "C:\\Windows")
+        sys_root = os.environ.get("SystemRoot", os.environ.get("WINDIR", "C:\\Windows"))
 
-        self.disposable_roots = [
+        candidate_roots = [
             tempfile.gettempdir(),
-            os.path.join(windows_dir, "Temp"),
+            os.environ.get("TEMP"),
+            os.environ.get("TMP"),
+            os.path.join(sys_root, "Temp"),
             os.path.join(local_app_data, "Temp"),
             os.path.join(local_app_data, "CrashDumps")
         ]
 
+        # Normalize, deduplicate case-insensitively, and keep only existing directories
+        seen_normalized = set()
+        resolved_roots = []
+
+        for cr in candidate_roots:
+            if not cr:
+                continue
+            try:
+                expanded = os.path.normpath(os.path.expandvars(cr))
+                if os.path.exists(expanded) and os.path.isdir(expanded):
+                    real_p = os.path.realpath(expanded)
+                    lower_p = real_p.lower()
+                    if lower_p not in seen_normalized:
+                        seen_normalized.add(lower_p)
+                        resolved_roots.append(expanded)
+            except Exception as e:
+                logger.debug(f"Error evaluating disposable root '{cr}': {e}")
+
+        return resolved_roots
+
     def _classify_item(self, file_path):
-        """Classifies a candidate into Temporary, Cache, or Crash dumps."""
+        """Classifies a candidate into Temporary, Cache, Crash dumps, or Installers."""
         lower = file_path.lower()
         if lower.endswith(".dmp") or "crashdumps" in lower:
             return "Crash dumps"
-        if "cache" in lower or lower.endswith(".tmp") or lower.endswith(".chk"):
+        if lower.endswith(".msi") or (lower.endswith(".exe") and ("installer" in lower or "setup" in lower or "temp" in lower)):
+            return "Installers"
+        if "cache" in lower or lower.endswith(".chk"):
             return "Cache"
         return "Temporary"
 
-    def discover(self):
+    def discover(self, min_age_hours=None):
         """
         Discovers cleanup candidates across allowed disposable roots.
-        Returns a list of dicts:
-          [{'path': str, 'size': int, 'category': str, 'is_dir': bool}]
+        Applies strict age filtering (default > 24 hours) and safety checks.
+        Returns a list of candidate dicts.
         """
+        age_hours = self.default_min_age_hours if min_age_hours is None else min_age_hours
+        min_age_seconds = age_hours * 3600.0
+        now = time.time()
+
         candidates = []
+        files_examined = 0
+        files_skipped_new = 0
+
         for root in self.disposable_roots:
-            if not os.path.exists(root):
+            if not os.path.exists(root) or not os.path.isdir(root):
                 continue
 
-            try:
-                items = os.listdir(root)
-            except OSError:
-                continue
-
-            for item in items:
-                item_path = os.path.join(root, item)
-
-                # Strictly validate that item resolves inside the allowed root
-                if not self.safety_engine.validate_path(item_path, self.disposable_roots):
+            # Traverse directory recursively
+            for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+                # Verify current dirpath is inside allowed disposable roots
+                if not self.safety_engine.validate_path(dirpath, self.disposable_roots):
                     continue
 
-                if self.safety_engine.is_path_protected(item_path):
-                    continue
+                for fname in filenames:
+                    files_examined += 1
+                    file_path = os.path.join(dirpath, fname)
 
-                try:
-                    category = self._classify_item(item_path)
-                    if os.path.isfile(item_path) or os.path.islink(item_path):
-                        size = os.path.getsize(item_path)
+                    # Strictly validate path containment and protection
+                    if not self.safety_engine.validate_path(file_path, self.disposable_roots):
+                        continue
+                    if self.safety_engine.is_path_protected(file_path):
+                        continue
+
+                    try:
+                        st = os.stat(file_path)
+                        mtime = st.st_mtime
+                        age_sec = now - mtime
+
+                        # Age threshold filter: preserve newer files (< min_age_hours)
+                        if min_age_seconds > 0 and age_sec < min_age_seconds:
+                            files_skipped_new += 1
+                            continue
+
+                        size = st.st_size
+                        category = self._classify_item(file_path)
+                        age_h = round(age_sec / 3600.0, 1)
+
                         candidates.append({
-                            "path": item_path,
+                            "path": file_path,
+                            "name": fname,
                             "size": size,
+                            "size_mb": round(size / (1024 * 1024), 3),
                             "category": category,
-                            "is_dir": False
+                            "is_dir": False,
+                            "mtime": mtime,
+                            "age_hours": age_h,
+                            "root_folder": root
                         })
-                    elif os.path.isdir(item_path):
-                        size = 0
-                        for dp, _, files in os.walk(item_path):
-                            for f in files:
-                                fp = os.path.join(dp, f)
-                                if os.path.exists(fp) and not os.path.islink(fp):
-                                    try:
-                                        size += os.path.getsize(fp)
-                                    except OSError:
-                                        pass
-                        candidates.append({
-                            "path": item_path,
-                            "size": size,
-                            "category": category,
-                            "is_dir": True
-                        })
-                except OSError:
-                    continue
+                    except (PermissionError, OSError) as e:
+                        logger.debug(f"Could not stat temporary file '{file_path}': {e}")
+                        continue
 
+        self._last_examined = files_examined
+        self._last_skipped_new = files_skipped_new
         return candidates
 
-    def preview(self):
+    def preview(self, min_age_hours=None):
         """
         SCAN ONLY mode.
-        Returns itemized preview without performing any deletions.
+        Returns itemized preview and summary metrics without performing any deletions.
         """
-        candidates = self.discover()
+        candidates = self.discover(min_age_hours=min_age_hours)
         total_bytes = sum(c["size"] for c in candidates)
         categories_breakdown = {
             "Temporary": 0.0,
             "Cache": 0.0,
-            "Crash dumps": 0.0
+            "Crash dumps": 0.0,
+            "Installers": 0.0
         }
 
         for c in candidates:
@@ -117,60 +169,138 @@ class SystemCleaner:
             "count": len(candidates),
             "size_mb": round(total_bytes / (1024 * 1024), 2),
             "categories": {k: round(v, 2) for k, v in categories_breakdown.items()},
-            "candidates": candidates
+            "roots_scanned": list(self.disposable_roots),
+            "candidates": candidates,
+            "files_skipped_new": self._last_skipped_new,
+            "files_examined": self._last_examined
         }
 
-    def execute(self, candidates, batch_size=50, pause_between_batches=0.05):
+    def execute(self, candidates=None, batch_size=50, pause_between_batches=0.01, on_progress=None):
         """
         Executes cleanup on pre-approved candidate list in responsive batches.
-        Respects safety_engine dry_run mode.
+        Safely handles locked/in-use files without force-terminating processes.
+        Respects safety_engine dry_run mode and logs results to DB.
         """
-        files_removed, dirs_removed, bytes_recovered = 0, 0, 0
-        categories_recovered = {"Temporary": 0, "Cache": 0, "Crash dumps": 0}
+        if candidates is None:
+            candidates = self.discover()
+
+        files_examined = len(candidates)
+        files_removed = 0
+        dirs_removed = 0
+        bytes_recovered = 0
+        files_skipped_in_use = 0
+        errors = 0
+        categories_recovered = {"Temporary": 0, "Cache": 0, "Crash dumps": 0, "Installers": 0}
+        t0 = time.time()
 
         for idx, c in enumerate(candidates, 1):
             path = c["path"]
-            size = c["size"]
-            category = c["category"]
-            is_dir = c["is_dir"]
+            size = c.get("size", 0)
+            category = c.get("category", "Temporary")
+            is_dir = c.get("is_dir", False)
 
+            # Safety gate check
             allowed, reason = self.safety_engine.gate_action("cleanup_delete", path)
             if not allowed:
-                logger.info(f"[DRY RUN / SAFE] Would remove: {path} | Category: {category} | Reason: Verified safe temporary item (no changes made)")
+                if reason == "dry_run":
+                    logger.debug(f"[DRY RUN / SAFE] Would remove: {path} | Category: {category} ({size} bytes)")
+                    if not is_dir:
+                        files_removed += 1
+                    else:
+                        dirs_removed += 1
+                    bytes_recovered += size
+                    categories_recovered[category] = categories_recovered.get(category, 0) + 1
             else:
                 try:
                     if not is_dir and (os.path.isfile(path) or os.path.islink(path)):
                         os.unlink(path)
                         files_removed += 1
+                        bytes_recovered += size
+                        categories_recovered[category] = categories_recovered.get(category, 0) + 1
                     elif is_dir and os.path.isdir(path):
-                        shutil.rmtree(path)
-                        dirs_removed += 1
-                    bytes_recovered += size
-                    categories_recovered[category] = categories_recovered.get(category, 0) + 1
+                        # Only delete directories if they are strictly subdirectories of disposable roots
+                        if not any(os.path.samefile(path, r) for r in self.disposable_roots if os.path.exists(r)):
+                            shutil.rmtree(path)
+                            dirs_removed += 1
+                            bytes_recovered += size
+                            categories_recovered[category] = categories_recovered.get(category, 0) + 1
+                except (PermissionError, OSError) as e:
+                    # In-use / locked file — skip cleanly without process killing
+                    files_skipped_in_use += 1
+                    logger.debug(f"Skipping locked/in-use temporary file: {path} ({e})")
                 except Exception as e:
-                    logger.warning(f"Could not remove locked or protected item {path}: {e}")
+                    errors += 1
+                    logger.warning(f"Error removing temporary item {path}: {e}")
+
+            if on_progress:
+                try:
+                    on_progress(idx, len(candidates), path)
+                except Exception:
+                    pass
 
             if idx % batch_size == 0 and idx < len(candidates):
                 time.sleep(pause_between_batches)
 
-        space_mb = round(bytes_recovered / (1024 * 1024), 2)
+        # In live mode, clean leftover empty subdirectories within disposable roots
         dry_run = self.safety_engine.dry_run
+        if not dry_run:
+            dirs_removed += self._prune_empty_subdirs()
+
+        space_mb = round(bytes_recovered / (1024 * 1024), 2)
+        duration_sec = round(time.time() - t0, 2)
 
         if self.db_mgr:
-            self.db_mgr.log_cleanup_event(
-                files_removed=files_removed,
-                dirs_removed=dirs_removed,
-                space_recovered_mb=space_mb,
-                categories=categories_recovered,
-                dry_run=dry_run
-            )
+            try:
+                self.db_mgr.log_cleanup_event(
+                    files_removed=files_removed,
+                    dirs_removed=dirs_removed,
+                    space_recovered_mb=space_mb,
+                    categories=categories_recovered,
+                    dry_run=dry_run
+                )
+            except Exception as e:
+                logger.error(f"Failed to log cleanup event to database: {e}")
 
         result = {
+            "files_examined": files_examined,
             "files_removed": files_removed,
+            "files_deleted": files_removed,
             "dirs_removed": dirs_removed,
+            "dirs_deleted": dirs_removed,
             "space_recovered_mb": space_mb,
+            "files_skipped_in_use": files_skipped_in_use,
+            "files_skipped_new": self._last_skipped_new,
+            "errors": errors,
+            "duration_seconds": duration_sec,
             "dry_run": dry_run,
-            "categories_breakdown": categories_recovered
+            "categories_breakdown": categories_recovered,
+            "roots_cleaned": list(self.disposable_roots)
         }
-        logger.info(f"Cleanup execution result: {result}")
+        logger.info(f"Cleanup execution finished: {result}")
         return result
+
+    def _prune_empty_subdirs(self):
+        """Safely removes empty subdirectories within disposable roots (skipping roots themselves)."""
+        removed = 0
+        for root in self.disposable_roots:
+            if not os.path.exists(root) or not os.path.isdir(root):
+                continue
+            for dirpath, dirnames, filenames in os.walk(root, topdown=False):
+                # Never delete the root directory itself
+                try:
+                    if os.path.samefile(dirpath, root):
+                        continue
+                except Exception:
+                    if os.path.normpath(dirpath).lower() == os.path.normpath(root).lower():
+                        continue
+
+                # Check if directory is empty
+                try:
+                    if not os.listdir(dirpath):
+                        allowed, _ = self.safety_engine.gate_action("cleanup_delete", dirpath)
+                        if allowed:
+                            os.rmdir(dirpath)
+                            removed += 1
+                except (PermissionError, OSError):
+                    pass
+        return removed

@@ -44,14 +44,15 @@ class TestThreatSentinel(unittest.TestCase):
         path = self._create_file("document.txt")
         report = self.sentinel.analyze_file(path)
         self.assertIsNotNone(report)
-        self.assertEqual(report["classification"], "LOW")
+        self.assertEqual(report["classification"], "CLEAN")
         self.assertEqual(report["risk_score"], 0)
 
     def test_analyze_suspicious_double_extension(self):
         path = self._create_file("invoice.pdf.exe")
         report = self.sentinel.analyze_file(path)
         self.assertIsNotNone(report)
-        self.assertGreaterEqual(report["risk_score"], 30)
+        self.assertGreaterEqual(report["risk_score"], 50)
+        self.assertIn(report["classification"], ["THREAT", "HIGH", "SUSPICIOUS"])
         self.assertIn("invoice.pdf.exe", report["explanation"])
 
     def test_analyze_with_defender_confirmed_malware(self):
@@ -59,10 +60,10 @@ class TestThreatSentinel(unittest.TestCase):
         path = self._create_file("bad_installer.exe")
         report = malware_sentinel.analyze_file(path)
         self.assertIsNotNone(report)
-        self.assertEqual(report["classification"], "CRITICAL")
+        self.assertEqual(report["classification"], "CONFIRMED_MALWARE")
         self.assertEqual(report["risk_score"], 100)
         self.assertTrue(report["threat_confirmed"])
-        self.assertEqual(report["category"], "malware_confirmed")
+        self.assertEqual(report["category"], "confirmed_malware")
 
     def test_nonexistent_file_returns_none(self):
         report = self.sentinel.analyze_file(os.path.join(self.tmpdir, "missing.bin"))

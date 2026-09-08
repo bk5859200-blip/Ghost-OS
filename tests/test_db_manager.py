@@ -64,14 +64,16 @@ class TestDBManager(unittest.TestCase):
         # Insert sample events
         self.db_mgr.log_cleanup_event(files_removed=10, dirs_removed=2, space_recovered_mb=120.5, dry_run=False)
         self.db_mgr.log_guardian_event("C:\\test\\a.exe", "threat_sentinel", "Disguised", "HIGH")
+        self.db_mgr.log_guardian_event("C:\\test\\b.exe", "threat_sentinel", "Suspicious script", "MEDIUM")
         self.db_mgr.log_anomaly("system", "CPU", "cpu_burst", 95.0, "CPU Spike")
 
         summary = self.db_mgr.get_away_summary(window_hours=1)
         self.assertEqual(summary["cleanups_count"], 1)
         self.assertEqual(summary["space_recovered_mb"], 120.5)
+        self.assertEqual(summary["threats_count"], 1)
         self.assertEqual(summary["suspicious_count"], 1)
         self.assertEqual(summary["anomalies_count"], 1)
-        self.assertIn("Attention recommended", summary["status_assessment"])
+        self.assertIn("Action recommended", summary["status_assessment"])
 
 
 if __name__ == "__main__":

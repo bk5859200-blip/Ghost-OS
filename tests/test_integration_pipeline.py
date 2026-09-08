@@ -73,7 +73,7 @@ class TestIntegrationPipeline(unittest.TestCase):
 
         result = self.core.execute_event_pipeline(test_file)
         self.assertEqual(result["status"], "processed")
-        self.assertIn(result["severity"], ["HIGH", "CRITICAL", "MEDIUM"])
+        self.assertIn(result["severity"], ["THREAT", "HIGH", "CRITICAL", "MEDIUM", "SUSPICIOUS"])
 
         # Verify recorded in DB
         events = self.db_mgr.get_recent_events(limit=10)

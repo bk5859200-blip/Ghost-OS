@@ -149,7 +149,7 @@ class ControlCenterApp:
 
         self.notebook.add(self.tab_overview, text="  Overview  ")
         self.notebook.add(self.tab_scan, text="  Quick Scan  ")
-        self.notebook.add(self.tab_threats, text="  Threats & Alerts  ")
+        self.notebook.add(self.tab_threats, text="  Detections & Threats  ")
         self.notebook.add(self.tab_quarantine, text="  Quarantine Vault  ")
         self.notebook.add(self.tab_activity, text="  Activity Log  ")
         self.notebook.add(self.tab_settings, text="  Policy Settings  ")
@@ -231,11 +231,11 @@ class ControlCenterApp:
         self.lbl_procs = ttk.Label(c_procs, text="0", style="Value.TLabel")
         self.lbl_procs.pack(anchor="w", pady=2)
 
-        # Threats Detected
+        # Security Status
         c_threats = ttk.Frame(metrics_frame, style="Card.TFrame", padding=8)
         c_threats.grid(row=1, column=2, padx=4, pady=4, sticky="nsew")
-        ttk.Label(c_threats, text="Threats Detected", style="Subheader.TLabel").pack(anchor="w")
-        self.lbl_threats_count = ttk.Label(c_threats, text="0", style="Value.TLabel")
+        ttk.Label(c_threats, text="Security Status", style="Subheader.TLabel").pack(anchor="w")
+        self.lbl_threats_count = ttk.Label(c_threats, text="Clean / 0 Threats", style="Value.TLabel")
         self.lbl_threats_count.pack(anchor="w", pady=2)
 
         # Quarantined Vault
@@ -279,8 +279,10 @@ class ControlCenterApp:
 
         ttk.Button(action_bar, text="▶ Run Quick Scan", style="Accent.TButton",
                    command=lambda: self._select_tab("scan")).pack(side="left", padx=(0, 8))
-        ttk.Button(action_bar, text="🧹 Clean System", style="Secondary.TButton",
+        ttk.Button(action_bar, text="🧹 Clean Now", style="Secondary.TButton",
                    command=self._trigger_cleanup).pack(side="left", padx=(0, 8))
+        ttk.Button(action_bar, text="📋 Review Cleanup", style="Secondary.TButton",
+                   command=self._show_cleanup_review_dialog).pack(side="left", padx=(0, 8))
         self.btn_pause_toggle = ttk.Button(action_bar, text="⏸ Pause Guardian", style="Secondary.TButton",
                                             command=self._toggle_pause)
         self.btn_pause_toggle.pack(side="left", padx=(0, 8))
@@ -296,10 +298,10 @@ class ControlCenterApp:
 
         ttk.Label(ctrl_frame, text="On-Demand Security Scanner", style="Header.TLabel").pack(anchor="w")
         ttk.Label(ctrl_frame, text="Scans configured watch folders for disguised extensions, suspicious scripts, and malware via Rule Engine & Defender.",
-                  style="Subheader.TLabel").pack(anchor="w", pady=(2, 8))
+                  style="Subheader.TLabel").pack(anchor="w", pady=(2, 6))
 
         btn_row = tk.Frame(ctrl_frame, bg=BG_CARD)
-        btn_row.pack(fill="x", pady=(0, 6))
+        btn_row.pack(fill="x", pady=(0, 4))
 
         self.btn_start_scan = ttk.Button(btn_row, text="▶ Start Full Scan", style="Accent.TButton",
                                          command=self._start_scan_job)
@@ -315,25 +317,47 @@ class ControlCenterApp:
         self.lbl_scan_status = ttk.Label(ctrl_frame, text="Ready to scan.", style="Subheader.TLabel")
         self.lbl_scan_status.pack(anchor="w")
 
+        # Category Breakdown Badges
+        counter_row = tk.Frame(ctrl_frame, bg=BG_CARD)
+        counter_row.pack(fill="x", pady=(6, 0))
+
+        self.lbl_scan_badge_threats = tk.Label(counter_row, text="Threats: 0", bg=BG_INPUT, fg=ACCENT_RED,
+                                               font=("Segoe UI", 9, "bold"), padx=10, pady=3)
+        self.lbl_scan_badge_threats.pack(side="left", padx=(0, 6))
+
+        self.lbl_scan_badge_suspicious = tk.Label(counter_row, text="Suspicious: 0", bg=BG_INPUT, fg=ACCENT_YELLOW,
+                                                  font=("Segoe UI", 9, "bold"), padx=10, pady=3)
+        self.lbl_scan_badge_suspicious.pack(side="left", padx=(0, 6))
+
+        self.lbl_scan_badge_low_risk = tk.Label(counter_row, text="Low Risk: 0", bg=BG_INPUT, fg=ACCENT_BLUE,
+                                                font=("Segoe UI", 9, "bold"), padx=10, pady=3)
+        self.lbl_scan_badge_low_risk.pack(side="left", padx=(0, 6))
+
+        self.lbl_scan_badge_clean = tk.Label(counter_row, text="Clean: 0", bg=BG_INPUT, fg=ACCENT_GREEN,
+                                             font=("Segoe UI", 9, "bold"), padx=10, pady=3)
+        self.lbl_scan_badge_clean.pack(side="left")
+
         # Results table
         results_frame = ttk.Frame(f, style="Card.TFrame", padding=10)
         results_frame.pack(fill="both", expand=True, padx=10, pady=4)
 
-        ttk.Label(results_frame, text="Flagged Items & Threat Detections", style="Header.TLabel").pack(anchor="w", pady=(0, 4))
+        ttk.Label(results_frame, text="Scan Findings & Classification Results", style="Header.TLabel").pack(anchor="w", pady=(0, 4))
 
-        columns = ("score", "severity", "category", "reason", "path")
+        columns = ("score", "classification", "publisher", "sig_status", "reason", "path")
         self.tree_scan = ttk.Treeview(results_frame, columns=columns, show="headings", selectmode="browse")
         self.tree_scan.heading("score", text="Score")
-        self.tree_scan.heading("severity", text="Severity")
-        self.tree_scan.heading("category", text="Category")
+        self.tree_scan.heading("classification", text="Status / Classification")
+        self.tree_scan.heading("publisher", text="Publisher")
+        self.tree_scan.heading("sig_status", text="Signature")
         self.tree_scan.heading("reason", text="Detection Reason")
         self.tree_scan.heading("path", text="File Path")
 
-        self.tree_scan.column("score", width=70, anchor="center")
-        self.tree_scan.column("severity", width=90, anchor="center")
-        self.tree_scan.column("category", width=110, anchor="center")
-        self.tree_scan.column("reason", width=260, anchor="w")
-        self.tree_scan.column("path", width=380, anchor="w")
+        self.tree_scan.column("score", width=55, anchor="center")
+        self.tree_scan.column("classification", width=150, anchor="center")
+        self.tree_scan.column("publisher", width=150, anchor="w")
+        self.tree_scan.column("sig_status", width=85, anchor="center")
+        self.tree_scan.column("reason", width=250, anchor="w")
+        self.tree_scan.column("path", width=300, anchor="w")
 
         scroll_scan = ttk.Scrollbar(results_frame, orient="vertical", command=self.tree_scan.yview)
         self.tree_scan.configure(yscrollcommand=scroll_scan.set)
@@ -354,49 +378,76 @@ class ControlCenterApp:
         ttk.Button(action_row, text="✕ Dismiss", style="Secondary.TButton",
                    command=self._dismiss_scan_selection).pack(side="left")
 
-    # ------------------------------------------------------------- 3. THREATS & SECURITY TAB
+    # ------------------------------------------------------------- 3. DETECTIONS & THREATS TAB
     def _build_threats_tab(self):
         f = self.tab_threats
+        self._threats_filter = "All"
 
         top_frame = ttk.Frame(f, style="Card.TFrame", padding=12)
         top_frame.pack(fill="x", padx=10, pady=(10, 6))
 
         ttk.Label(top_frame, text="Security Detections & Alerts", style="Header.TLabel").pack(anchor="w")
-        ttk.Label(top_frame, text="All suspicious files, disguised executables, anomalous processes, and Defender detections.",
+        ttk.Label(top_frame, text="Categorized security findings. Low-risk and suspicious software are isolated from confirmed threats.",
                   style="Subheader.TLabel").pack(anchor="w", pady=(2, 6))
 
-        btn_row = tk.Frame(top_frame, bg=BG_CARD)
-        btn_row.pack(fill="x")
+        # Summary Badges Row
+        badge_row = tk.Frame(top_frame, bg=BG_CARD)
+        badge_row.pack(fill="x", pady=(2, 6))
 
-        ttk.Button(btn_row, text="🔄 Refresh Detections", style="Secondary.TButton",
-                   command=self._load_threats_data).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_row, text="🛡 Quarantine Selected", style="Accent.TButton",
-                   command=self._quarantine_threat_selection).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_row, text="🗑 Delete Selected", style="Danger.TButton",
-                   command=self._delete_threat_selection).pack(side="left", padx=(0, 8))
-        ttk.Button(btn_row, text="📁 Open Location", style="Secondary.TButton",
-                   command=self._open_threat_file_location).pack(side="left")
+        self.lbl_threat_badge_threats = tk.Label(badge_row, text="🔴 Confirmed Threats: 0", bg=BG_INPUT, fg=ACCENT_RED,
+                                                 font=("Segoe UI", 9, "bold"), padx=10, pady=3)
+        self.lbl_threat_badge_threats.pack(side="left", padx=(0, 8))
+
+        self.lbl_threat_badge_suspicious = tk.Label(badge_row, text="🟡 Suspicious: 0", bg=BG_INPUT, fg=ACCENT_YELLOW,
+                                                    font=("Segoe UI", 9, "bold"), padx=10, pady=3)
+        self.lbl_threat_badge_suspicious.pack(side="left", padx=(0, 8))
+
+        self.lbl_threat_badge_low_risk = tk.Label(badge_row, text="🔵 Low Risk: 0", bg=BG_INPUT, fg=ACCENT_BLUE,
+                                                  font=("Segoe UI", 9, "bold"), padx=10, pady=3)
+        self.lbl_threat_badge_low_risk.pack(side="left")
+
+        # Filter & Action Row
+        ctrl_row = tk.Frame(top_frame, bg=BG_CARD)
+        ctrl_row.pack(fill="x", pady=(4, 0))
+
+        # Filter buttons
+        self.threat_filter_buttons = {}
+        for cat in ("All", "Threats", "Suspicious", "Low Risk"):
+            btn = ttk.Button(ctrl_row, text=cat, style="FilterActive.TButton" if cat == "All" else "FilterInactive.TButton",
+                             command=lambda c=cat: self._set_threats_filter(c))
+            btn.pack(side="left", padx=(0, 4))
+            self.threat_filter_buttons[cat] = btn
+
+        # Actions on right
+        ttk.Button(ctrl_row, text="📁 Open Location", style="Secondary.TButton",
+                   command=self._open_threat_file_location).pack(side="right", padx=(4, 0))
+        ttk.Button(ctrl_row, text="🗑 Delete", style="Danger.TButton",
+                   command=self._delete_threat_selection).pack(side="right", padx=(4, 0))
+        ttk.Button(ctrl_row, text="🛡 Quarantine", style="Accent.TButton",
+                   command=self._quarantine_threat_selection).pack(side="right", padx=(4, 0))
+        ttk.Button(ctrl_row, text="🔄 Refresh", style="Secondary.TButton",
+                   command=self._load_threats_data).pack(side="right", padx=(4, 0))
 
         # Threats Treeview
         table_frame = ttk.Frame(f, style="Card.TFrame", padding=10)
         table_frame.pack(fill="both", expand=True, padx=10, pady=4)
 
-        cols = ("id", "date", "detector", "severity", "score", "status", "path")
+        cols = ("id", "date", "classification", "score", "detector", "status", "path")
         self.tree_threats = ttk.Treeview(table_frame, columns=cols, show="headings", selectmode="browse")
         self.tree_threats.heading("id", text="ID")
         self.tree_threats.heading("date", text="Date/Time")
-        self.tree_threats.heading("detector", text="Source")
-        self.tree_threats.heading("severity", text="Severity")
+        self.tree_threats.heading("classification", text="Classification")
         self.tree_threats.heading("score", text="Score")
+        self.tree_threats.heading("detector", text="Source")
         self.tree_threats.heading("status", text="Status")
         self.tree_threats.heading("path", text="Target Path")
 
         self.tree_threats.column("id", width=40, anchor="center")
-        self.tree_threats.column("date", width=140, anchor="center")
-        self.tree_threats.column("detector", width=120, anchor="center")
-        self.tree_threats.column("severity", width=90, anchor="center")
-        self.tree_threats.column("score", width=60, anchor="center")
-        self.tree_threats.column("status", width=90, anchor="center")
+        self.tree_threats.column("date", width=130, anchor="center")
+        self.tree_threats.column("classification", width=140, anchor="center")
+        self.tree_threats.column("score", width=55, anchor="center")
+        self.tree_threats.column("detector", width=110, anchor="center")
+        self.tree_threats.column("status", width=80, anchor="center")
         self.tree_threats.column("path", width=380, anchor="w")
 
         scroll_t = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree_threats.yview)
@@ -565,9 +616,16 @@ class ControlCenterApp:
         ttk.Label(top_frame, text="Executes end-to-end verification across Defender CLI, Database, Sensors, Storage, and Watchers.",
                   style="Subheader.TLabel").pack(anchor="w", pady=(2, 6))
 
-        self.btn_run_diag = ttk.Button(top_frame, text="⚡ Run Full Diagnostics", style="Accent.TButton",
+        btn_bar = tk.Frame(top_frame, bg=BG_CARD)
+        btn_bar.pack(anchor="w", pady=4)
+
+        self.btn_run_diag = ttk.Button(btn_bar, text="⚡ Run Full Diagnostics", style="Accent.TButton",
                                        command=self._trigger_diagnostics)
-        self.btn_run_diag.pack(anchor="w", pady=4)
+        self.btn_run_diag.pack(side="left", padx=(0, 10))
+
+        self.btn_test_notif = ttk.Button(btn_bar, text="🧪 Send Test Security Alert", style="Secondary.TButton",
+                                         command=self._trigger_test_notification)
+        self.btn_test_notif.pack(side="left")
 
         # Output text area
         diag_frame = ttk.Frame(f, style="Card.TFrame", padding=10)
@@ -586,6 +644,8 @@ class ControlCenterApp:
             "overview": self.tab_overview,
             "scan": self.tab_scan,
             "threats": self.tab_threats,
+            "detections": self.tab_threats,
+            "security": self.tab_threats,
             "quarantine": self.tab_quarantine,
             "activity": self.tab_activity,
             "policy": self.tab_settings,
@@ -594,7 +654,7 @@ class ControlCenterApp:
         }
         target = mapping.get(str(tab_name).lower(), self.tab_overview)
         self.notebook.select(target)
-        if str(tab_name).lower() == "threats":
+        if str(tab_name).lower() in ("threats", "detections", "security"):
             self._load_threats_data()
         elif str(tab_name).lower() == "quarantine":
             self._load_quarantine_data()
@@ -654,12 +714,24 @@ class ControlCenterApp:
 
             # Digest summary & counts
             summary = self.core.get_away_summary(window_hours=24)
-            self.lbl_threats_count.config(text=str(summary.get("suspicious_count", 0)))
+            thr = summary.get('threats_count', 0)
+            susp = summary.get('suspicious_count', 0)
+            low_r = summary.get('low_risk_count', 0)
+
+            if thr > 0:
+                self.lbl_threats_count.config(text=f"{thr} Threat(s)", foreground=ACCENT_RED)
+            elif susp > 0:
+                self.lbl_threats_count.config(text=f"{susp} Suspicious", foreground=ACCENT_YELLOW)
+            else:
+                self.lbl_threats_count.config(text="Clean / 0 Threats", foreground=ACCENT_GREEN)
+
             self.lbl_quarantine_count.config(text=f"{summary.get('quarantined_count', 0)} Items")
 
             digest_text = (
                 f"Assessment:         {summary['status_assessment']}\n"
-                f"Suspicious Events:  {summary['suspicious_count']}\n"
+                f"Confirmed Threats:  {thr}\n"
+                f"Suspicious Items:   {susp}\n"
+                f"Low Risk Findings:  {low_r}\n"
                 f"Quarantined Files:  {summary['quarantined_count']}\n"
                 f"Process Launches:   {summary['process_starts_count']}\n"
                 f"Anomalies Logged:   {summary['anomalies_count']}\n"
@@ -721,8 +793,141 @@ class ControlCenterApp:
         self._update_overview_telemetry()
 
     def _trigger_cleanup(self):
-        self.core.propose_cleanup()
-        messagebox.showinfo("Ghost OS Cleanup", "System cleanup preview initiated in background.")
+        confirm = messagebox.askyesno(
+            "Ghost OS — Windows Temp / Junk Cleanup",
+            "Clean stale temporary and junk files (>24 hours old) across Windows Temp folders?\n\n"
+            "Active and locked files will be skipped safely."
+        )
+        if not confirm:
+            return
+
+        def on_prog(cur, total, path):
+            pass
+
+        def on_done(res):
+            self.root.after(0, lambda: self._on_cleanup_finished(res))
+
+        self.core.run_cleanup_now(on_progress=on_prog, on_complete=on_done)
+        messagebox.showinfo("Cleanup In Progress", "Temporary and junk file cleanup is running in the background.")
+
+    def _on_cleanup_finished(self, res):
+        self._update_overview_telemetry()
+        if res.get("error"):
+            messagebox.showwarning("Cleanup Notice", f"Cleanup notice: {res['error']}")
+            return
+
+        dry_run = res.get("dry_run", False)
+        removed = res.get("files_removed", 0)
+        dirs = res.get("dirs_removed", 0)
+        space = res.get("space_recovered_mb", 0.0)
+        skipped_in_use = res.get("files_skipped_in_use", 0)
+        skipped_new = res.get("files_skipped_new", 0)
+
+        if dry_run:
+            msg = (
+                f"[DRY RUN MODE — policy.yaml]\n\n"
+                f"Would remove: {removed} file(s), {dirs} empty folder(s)\n"
+                f"Would recover: {space} MB\n"
+                f"Active files preserved (<24h): {skipped_new}\n"
+                f"Locked files in-use: {skipped_in_use}\n\n"
+                f"No changes were made to your filesystem."
+            )
+            messagebox.showinfo("Dry Run Cleanup Summary", msg)
+        else:
+            msg = (
+                f"Cleanup Complete!\n\n"
+                f"Files removed: {removed}\n"
+                f"Folders removed: {dirs}\n"
+                f"Space recovered: {space} MB\n"
+                f"Active files preserved (<24h): {skipped_new}\n"
+                f"Locked files skipped: {skipped_in_use}"
+            )
+            messagebox.showinfo("Cleanup Complete", msg)
+
+    def _show_cleanup_review_dialog(self):
+        try:
+            preview = self.core.preview_cleanup()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to preview cleanup: {e}")
+            return
+
+        candidates = preview.get("candidates", [])
+        roots = preview.get("roots_scanned", [])
+        size_mb = preview.get("size_mb", 0.0)
+        skipped_new = preview.get("files_skipped_new", 0)
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Ghost OS — Review Temporary & Junk Files")
+        dialog.geometry("820x540")
+        dialog.minsize(700, 440)
+        dialog.configure(bg=BG_DARK)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        # Header
+        hdr_frame = ttk.Frame(dialog, style="Card.TFrame", padding=12)
+        hdr_frame.pack(fill="x", padx=10, pady=(10, 6))
+
+        ttk.Label(hdr_frame, text="Windows Temp & Junk Files Review", style="Header.TLabel").pack(anchor="w")
+        roots_str = " | ".join(roots) if roots else "Standard Windows Temp directories"
+        ttk.Label(hdr_frame, text=f"Target Locations: {roots_str}", style="Subheader.TLabel").pack(anchor="w", pady=(2, 4))
+
+        summary_text = f"Candidates (>24h): {len(candidates)} items ({size_mb} MB) | Active Files Preserved (<24h): {skipped_new}"
+        ttk.Label(hdr_frame, text=summary_text, style="StatusSuccess.TLabel").pack(anchor="w")
+
+        # Table
+        tbl_frame = ttk.Frame(dialog, style="Card.TFrame", padding=10)
+        tbl_frame.pack(fill="both", expand=True, padx=10, pady=4)
+
+        columns = ("name", "category", "size_mb", "age_h", "path")
+        tree_review = ttk.Treeview(tbl_frame, columns=columns, show="headings", selectmode="browse")
+        tree_review.heading("name", text="File Name")
+        tree_review.heading("category", text="Category")
+        tree_review.heading("size_mb", text="Size (MB)")
+        tree_review.heading("age_h", text="Age (Hours)")
+        tree_review.heading("path", text="Full Path")
+
+        tree_review.column("name", width=180, anchor="w")
+        tree_review.column("category", width=100, anchor="center")
+        tree_review.column("size_mb", width=80, anchor="center")
+        tree_review.column("age_h", width=80, anchor="center")
+        tree_review.column("path", width=320, anchor="w")
+
+        scroll_y = ttk.Scrollbar(tbl_frame, orient="vertical", command=tree_review.yview)
+        tree_review.configure(yscrollcommand=scroll_y.set)
+
+        tree_review.pack(side="left", fill="both", expand=True)
+        scroll_y.pack(side="right", fill="y")
+
+        for c in candidates:
+            tree_review.insert("", "end", values=(
+                c.get("name"),
+                c.get("category"),
+                c.get("size_mb"),
+                c.get("age_hours"),
+                c.get("path")
+            ))
+
+        # Action Buttons
+        btn_frame = tk.Frame(dialog, bg=BG_DARK)
+        btn_frame.pack(fill="x", padx=10, pady=(6, 10))
+
+        def on_clean_now():
+            dialog.destroy()
+            self._trigger_cleanup()
+
+        def on_open_folder():
+            sel = tree_review.selection()
+            if not sel:
+                messagebox.showwarning("Open Location", "Select an item to view its folder.", parent=dialog)
+                return
+            item_vals = tree_review.item(sel[0])["values"]
+            fp = str(item_vals[4])
+            self._open_file_in_explorer(fp)
+
+        ttk.Button(btn_frame, text="🧹 Clean All Stale Items", style="Accent.TButton", command=on_clean_now).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_frame, text="📁 Open Location", style="Secondary.TButton", command=on_open_folder).pack(side="left", padx=(0, 8))
+        ttk.Button(btn_frame, text="✕ Close", style="Secondary.TButton", command=dialog.destroy).pack(side="left")
 
     # ------------------------------------------------------------- Quick Scan Logic
     def _start_scan_job(self):
@@ -761,15 +966,33 @@ class ControlCenterApp:
             return
 
         flagged = res.get("flagged_items", [])
-        status_msg = f"Scan complete. {res.get('scanned_count', 0)} files scanned in {res.get('duration_seconds', 0)}s. {len(flagged)} threat(s) found."
+        scanned = res.get("scanned_count", 0)
+        threats = res.get("threats_count", 0)
+        suspicious = res.get("suspicious_count", 0)
+        low_risk = res.get("low_risk_count", 0)
+        clean = res.get("clean_count", 0)
+        dur = res.get("duration_seconds", 0)
+
+        # Update breakdown badges
+        if hasattr(self, "lbl_scan_badge_threats"):
+            self.lbl_scan_badge_threats.config(text=f"Threats: {threats}")
+            self.lbl_scan_badge_suspicious.config(text=f"Suspicious: {suspicious}")
+            self.lbl_scan_badge_low_risk.config(text=f"Low Risk: {low_risk}")
+            self.lbl_scan_badge_clean.config(text=f"Clean: {clean}")
+
+        status_msg = f"Scan complete in {dur}s: {scanned} files scanned ({threats} threat(s), {suspicious} suspicious, {low_risk} low risk, {clean} clean)."
         self.lbl_scan_status.config(text=status_msg)
 
         for item in flagged:
+            pub = item.get("publisher") or "Unsigned / Unknown"
+            sig = str(item.get("signature_status", "unknown")).capitalize()
+            raw_class = str(item.get("classification", "LOW_RISK")).upper().replace("_", " ")
             self.tree_scan.insert("", "end", values=(
                 item.get("risk_score"),
-                item.get("classification"),
-                item.get("category"),
-                item.get("reason", "Suspicious file characteristics"),
+                raw_class,
+                pub,
+                sig,
+                item.get("reason", "Standard file characteristics"),
                 item.get("file_path")
             ))
 
@@ -785,7 +1008,7 @@ class ControlCenterApp:
             return
 
         item = self.tree_scan.item(selected[0])["values"]
-        file_path = str(item[4])
+        file_path = str(item[5])
         if not os.path.exists(file_path):
             messagebox.showerror("Error", f"File no longer exists:\n{file_path}")
             return
@@ -807,7 +1030,9 @@ class ControlCenterApp:
             detector="manual_scan",
             reason=f"Risk Score: {item[0]} [{item[1]}]",
             severity=str(item[1]),
-            risk_score=float(item[0])
+            classification=str(item[1]).replace(" ", "_"),
+            risk_score=float(item[0]),
+            event_type="MANUAL_SCAN"
         )
         success, dest, _ = self.core.quarantine.quarantine_file(event_id, file_path)
         if success:
@@ -825,7 +1050,7 @@ class ControlCenterApp:
             return
 
         item = self.tree_scan.item(selected[0])["values"]
-        file_path = str(item[4])
+        file_path = str(item[5])
         if not os.path.exists(file_path):
             messagebox.showerror("Error", f"File no longer exists:\n{file_path}")
             return
@@ -847,7 +1072,9 @@ class ControlCenterApp:
             detector="manual_scan",
             reason="User confirmed deletion",
             severity=str(item[1]),
-            risk_score=float(item[0])
+            classification=str(item[1]).replace(" ", "_"),
+            risk_score=float(item[0]),
+            event_type="MANUAL_SCAN"
         )
         if self.core.quarantine.delete_file(event_id, file_path):
             messagebox.showinfo("Deleted", f"File was permanently deleted:\n{file_path}")
@@ -863,7 +1090,7 @@ class ControlCenterApp:
             return
 
         item = self.tree_scan.item(selected[0])["values"]
-        file_path = str(item[4])
+        file_path = str(item[5])
         self._open_file_in_explorer(file_path)
 
     def _dismiss_scan_selection(self):
@@ -871,18 +1098,47 @@ class ControlCenterApp:
         if selected:
             self.tree_scan.delete(selected[0])
 
-    # ------------------------------------------------------------- Threats & Security Logic
+    # ------------------------------------------------------------- Detections & Threats Logic
+    def _set_threats_filter(self, category):
+        self._threats_filter = category
+        for cat, btn in self.threat_filter_buttons.items():
+            btn.configure(style="FilterActive.TButton" if cat == category else "FilterInactive.TButton")
+        self._load_threats_data()
+
     def _load_threats_data(self):
         self.for_each_clear_tree(self.tree_threats)
         try:
-            events = self.core.db_mgr.get_recent_events(limit=100)
+            events = self.core.db_mgr.get_recent_events(limit=150)
+
+            # Calculate total metrics for badges
+            threats_total = sum(1 for ev in events if str(ev.get("classification") or ev.get("severity") or "").upper() in ("THREAT", "CONFIRMED_MALWARE", "HIGH", "CRITICAL"))
+            suspicious_total = sum(1 for ev in events if str(ev.get("classification") or ev.get("severity") or "").upper() in ("SUSPICIOUS", "MEDIUM"))
+            low_risk_total = sum(1 for ev in events if str(ev.get("classification") or ev.get("severity") or "").upper() in ("LOW_RISK", "LOW", "CLEAN"))
+
+            if hasattr(self, "lbl_threat_badge_threats"):
+                self.lbl_threat_badge_threats.config(text=f"🔴 Confirmed Threats: {threats_total}")
+                self.lbl_threat_badge_suspicious.config(text=f"🟡 Suspicious: {suspicious_total}")
+                self.lbl_threat_badge_low_risk.config(text=f"🔵 Low Risk: {low_risk_total}")
+
             for ev in events:
+                raw_class = str(ev.get("classification") or ev.get("severity") or "LOW_RISK").upper()
+
+                # Filter condition
+                if self._threats_filter == "Threats" and raw_class not in ("THREAT", "CONFIRMED_MALWARE", "HIGH", "CRITICAL"):
+                    continue
+                elif self._threats_filter == "Suspicious" and raw_class not in ("SUSPICIOUS", "MEDIUM"):
+                    continue
+                elif self._threats_filter == "Low Risk" and raw_class not in ("LOW_RISK", "LOW", "CLEAN"):
+                    continue
+
+                display_class = raw_class.replace("_", " ")
+
                 self.tree_threats.insert("", "end", values=(
                     ev.get("id"),
                     ev.get("timestamp"),
-                    ev.get("detector"),
-                    ev.get("severity"),
+                    display_class,
                     ev.get("risk_score", 0),
+                    ev.get("detector"),
                     ev.get("status", "pending"),
                     ev.get("file_path")
                 ))
@@ -1174,6 +1430,18 @@ class ControlCenterApp:
         self.txt_diagnostics.delete("1.0", "end")
         self.txt_diagnostics.insert("1.0", report)
 
+    def _trigger_test_notification(self):
+        try:
+            if hasattr(self.core, "notifier") and self.core.notifier:
+                def on_resp(eid, fp, act):
+                    logger.info(f"Test notification response received: event_id={eid}, action={act}")
+                self.core.notifier.send_test_threat_notification(on_response=on_resp)
+                messagebox.showinfo("Test Alert Sent", "A safe test security toast alert was sent to Windows.\n\nCheck the bottom-right corner of your screen / Windows Action Center.")
+            else:
+                messagebox.showwarning("Notifier Unavailable", "Core notification subsystem is not active.")
+        except Exception as e:
+            messagebox.showerror("Notification Error", f"Failed to dispatch test notification: {e}")
+
     # ------------------------------------------------------------- Utilities
     def _open_file_in_explorer(self, target_path, is_dir=False):
         try:
@@ -1319,11 +1587,22 @@ class ControlCenterManager:
                 dialog.attributes("-topmost", True)
                 dialog.lift()
 
+                sev_upper = str(severity).upper()
+                if "MALWARE" in sev_upper or "CRITICAL" in sev_upper:
+                    header_text = "🚨 Confirmed Threat / Malware Detected"
+                    header_fg = ACCENT_RED
+                elif "THREAT" in sev_upper or "HIGH" in sev_upper:
+                    header_text = "⚠ Potential Threat Detected"
+                    header_fg = ACCENT_RED
+                else:
+                    header_text = "🔍 Security Review Recommended"
+                    header_fg = ACCENT_YELLOW
+
                 header = tk.Label(
                     dialog,
-                    text="⚠ Suspicious / Unwanted File Detected",
+                    text=header_text,
                     bg=BG_DARK,
-                    fg=ACCENT_RED,
+                    fg=header_fg,
                     font=("Segoe UI", 12, "bold")
                 )
                 header.pack(anchor="w", padx=20, pady=(15, 5))
@@ -1331,7 +1610,7 @@ class ControlCenterManager:
                 msg_text = (
                     f"File: {os.path.basename(file_path)}\n"
                     f"Location: {file_path}\n"
-                    f"Assessment: {severity}\n"
+                    f"Classification: {sev_upper.replace('_', ' ')}\n"
                     f"Reason: {reason}\n\n"
                     f"Choose an action to take:"
                 )

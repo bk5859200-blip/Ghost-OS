@@ -80,10 +80,13 @@ class GhostCore:
         self.anomaly_detector = AnomalyDetector()
 
         # Actions & Quarantine
+        cleanup_cfg = config.get("cleanup", {})
+        min_age_hours = cleanup_cfg.get("stale_temp_hours", cleanup_cfg.get("min_age_hours", 24))
         self.cleaner = SystemCleaner(
             self.safety,
             db_mgr=self.db_mgr,
-            require_confirmation=config.get("cleanup", {}).get("require_confirmation", True)
+            require_confirmation=cleanup_cfg.get("require_confirmation", True),
+            min_age_hours=min_age_hours
         )
         self.quarantine = QuarantineManager(db_mgr=self.db_mgr)
 
@@ -139,6 +142,7 @@ class GhostCore:
         # Spawn resilient worker loops
         self._spawn(self._system_monitor_loop, "system_monitor")
         self._spawn(lambda: self.process_watcher.run_loop(lambda: not self._pause_event.is_set()), "process_watcher")
+        self._spawn(self._periodic_cleanup_loop, "periodic_cleanup")
 
         try:
             self.file_watcher.start()
@@ -367,6 +371,39 @@ class GhostCore:
             name=proc["name"]
         )
 
+    # ------------------------------------------------------- Periodic 5-Minute Cleaner
+    def _periodic_cleanup_loop(self):
+        """
+        Recurring background temporary/junk file inspection (runs every 300 seconds / 5 minutes).
+        Non-intrusive: inspects safe disposable locations (Temp, CrashDumps).
+        Gated by SafetyEngine and strictly respects dry_run policy.
+        Never overlaps with active scans or UI actions.
+        """
+        cleanup_interval = self.config.get("cleanup", {}).get("interval_seconds", 300)
+        while not self._stop_event.is_set():
+            if self._stop_event.wait(cleanup_interval):
+                break
+
+            if self._pause_event.is_set():
+                continue
+
+            try:
+                with self._cleanup_lock:
+                    if hasattr(self, "cleaner"):
+                        candidates = self.cleaner.discover()
+                        if candidates:
+                            total_size = sum(c.get("size", 0) for c in candidates)
+                            total_size_mb = round(total_size / (1024 * 1024), 2)
+                            file_count = len(candidates)
+                            if total_size_mb >= 5.0 or file_count >= 10:
+                                logger.info(f"Periodic 5-min cleanup inspection found {file_count} junk candidates ({total_size_mb} MB).")
+                                auto_clean = self.config.get("cleanup", {}).get("auto_clean", False)
+                                if auto_clean:
+                                    res = self.cleaner.execute(candidates)
+                                    logger.info(f"Periodic auto-cleanup freed {res.get('space_recovered_mb')} MB ({res.get('files_removed')} files).")
+            except Exception as e:
+                logger.debug(f"Periodic cleanup loop error: {e}")
+
     # ---------------------------------------------------------------- Unified Event Pipeline
     def execute_event_pipeline(self, file_path):
         """
@@ -400,25 +437,27 @@ class GhostCore:
         # 4. DECIDE
         severity, outcome, decision_reason = self.decision.decide_for_file_risk(analysis)
 
-        if outcome in (IGNORE, LOG) or not signals:
-            return {"status": "logged", "severity": severity, "score": score}
+        if outcome in (IGNORE, LOG) and classification in ("CLEAN", "LOW_RISK") and score < 20:
+            return {"status": "logged", "classification": classification, "severity": severity, "score": score}
 
         # 5. SAFETY CHECK
         detector = "defender" if analysis.get("threat_confirmed") else "threat_sentinel"
-        reason = "; ".join(s["reason"] for s in signals)
+        reason = decision_reason or "; ".join(s["reason"] for s in signals)
 
         # 9. REMEMBER (Guardian Event in DB)
         event_id = self.db_mgr.log_guardian_event(
             file_path=norm_path,
             detector=detector,
             reason=reason,
-            severity=classification,
+            severity=severity,
+            classification=classification,
             risk_score=score,
-            signals=signals
+            signals=signals,
+            event_type="FILE_DETECTED"
         )
 
         # 6. ACT & 7. VERIFY & 8. NOTIFY
-        if classification in (CRITICAL, HIGH):
+        if classification in ("CONFIRMED_MALWARE", "THREAT", "CRITICAL", "HIGH") or outcome == ASK_USER:
             self._health_state = STATE_PROTECTING
             self.notifier.alert_detection(
                 event_id=event_id,
@@ -427,7 +466,7 @@ class GhostCore:
                 severity=classification,
                 on_response=self._handle_user_response
             )
-        elif classification == MEDIUM:
+        elif classification in ("SUSPICIOUS", "MEDIUM") or outcome == NOTIFY:
             self._health_state = STATE_ATTENTION
             self.notifier.notify_suspicious(
                 file_path=norm_path,
@@ -439,7 +478,8 @@ class GhostCore:
         return {
             "status": "processed",
             "event_id": event_id,
-            "severity": classification,
+            "classification": classification,
+            "severity": severity,
             "score": score,
             "outcome": outcome
         }
@@ -532,6 +572,37 @@ class GhostCore:
             self._scan_lock.release()
 
     # ----------------------------------------------------------- Cleanup
+    def preview_cleanup(self, min_age_hours=None):
+        """Generates itemized candidate list and metrics for review before cleanup."""
+        return self.cleaner.preview(min_age_hours=min_age_hours)
+
+    def run_cleanup_now(self, on_progress=None, on_complete=None):
+        """
+        Asynchronously runs system temporary cleanup in a dedicated background worker thread.
+        Non-blocking for the UI thread.
+        """
+        def worker():
+            if not self._cleanup_lock.acquire(blocking=False):
+                logger.warning("Cleanup execution rejected: a cleanup operation is already in progress.")
+                if on_complete:
+                    on_complete({"error": "A cleanup operation is already in progress.", "dry_run": self.safety.dry_run})
+                return
+            try:
+                candidates = self.cleaner.discover()
+                result = self.cleaner.execute(candidates, on_progress=on_progress)
+                if on_complete:
+                    on_complete(result)
+            except Exception as e:
+                logger.error(f"Cleanup execution error: {e}", exc_info=True)
+                if on_complete:
+                    on_complete({"error": str(e), "dry_run": self.safety.dry_run})
+            finally:
+                self._cleanup_lock.release()
+
+        t = threading.Thread(target=worker, name="ghost_cleanup_runner", daemon=True)
+        t.start()
+        return t
+
     def propose_cleanup(self):
         if self._cleanup_lock.locked():
             logger.warning("Cleanup proposal rejected: a cleanup operation is already in progress.")

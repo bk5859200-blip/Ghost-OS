@@ -39,6 +39,7 @@ venv.bak/
 # Ghost OS Runtime & Local Data
 logs/
 data/
+scratch/
 *.log
 *.db
 *.db-wal

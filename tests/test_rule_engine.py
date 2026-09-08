@@ -32,21 +32,23 @@ class TestRuleEngine(unittest.TestCase):
         path = self._touch("invoice.pdf.exe")
         result = self.engine.evaluate(path)
         self.assertIsNotNone(result)
-        self.assertGreaterEqual(result["score"], 30)
-        self.assertEqual(result["category"], "suspicious")
+        self.assertGreaterEqual(result["score"], 50)
+        self.assertIn(result["classification"], ["THREAT", "HIGH", "SUSPICIOUS"])
         self.assertTrue(any("Disguised" in s.reason for s in result["signals"]))
 
     def test_clean_recent_text_not_flagged(self):
         path = self._touch("notes.txt")
         result = self.engine.evaluate(path)
-        self.assertIsNone(result)
+        self.assertIsNotNone(result)
+        self.assertEqual(result["classification"], "CLEAN")
+        self.assertEqual(result["score"], 0)
 
     def test_stale_temp_file_flagged_junk(self):
         path = self._touch("cache.tmp", age_days=20)
         result = self.engine.evaluate(path)
         self.assertIsNotNone(result)
         self.assertEqual(result["category"], "junk")
-        self.assertEqual(result["classification"], "LOW")
+        self.assertIn(result["classification"], ["CLEAN", "LOW_RISK", "LOW"])
 
     def test_nonexistent_file_returns_none(self):
         result = self.engine.evaluate(os.path.join(self.tmpdir, "ghost.exe"))

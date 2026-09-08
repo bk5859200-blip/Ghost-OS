@@ -140,21 +140,33 @@ class DBManager:
                 )
             """)
 
-            # 4. Guardian Events (Threat Sentinel and Defender detections)
+            # 4. Guardian Events (Security and file detections)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS guardian_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TEXT NOT NULL,
                     file_path TEXT NOT NULL,
+                    event_type TEXT NOT NULL DEFAULT 'FILE_DETECTED', -- 'FILE_DETECTED' | 'MANUAL_SCAN' | 'PROCESS_ANOMALY'
                     detector TEXT NOT NULL,        -- 'threat_sentinel' | 'defender' | 'rule_engine'
                     reason TEXT NOT NULL,
                     severity TEXT NOT NULL,        -- 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+                    classification TEXT NOT NULL DEFAULT 'LOW_RISK', -- 'CLEAN' | 'LOW_RISK' | 'SUSPICIOUS' | 'THREAT' | 'CONFIRMED_MALWARE'
                     risk_score INTEGER DEFAULT 0,
                     signals_json TEXT,
                     status TEXT NOT NULL DEFAULT 'pending', -- 'pending' | 'quarantined' | 'deleted' | 'ignored'
                     resolved_at TEXT
                 )
             """)
+
+            # Schema migration for existing databases
+            try:
+                cursor.execute("ALTER TABLE guardian_events ADD COLUMN classification TEXT NOT NULL DEFAULT 'LOW_RISK';")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                cursor.execute("ALTER TABLE guardian_events ADD COLUMN event_type TEXT NOT NULL DEFAULT 'FILE_DETECTED';")
+            except sqlite3.OperationalError:
+                pass
 
             # 5. Quarantine Log
             cursor.execute("""
@@ -247,18 +259,32 @@ class DBManager:
             conn.commit()
             return cursor.lastrowid
 
-    def log_guardian_event(self, file_path, detector, reason, severity, risk_score=0, signals=None):
+    def log_guardian_event(self, file_path, detector, reason, severity, risk_score=0, signals=None, classification=None, event_type="FILE_DETECTED"):
         """Records a security detection. Returns the new event ID."""
         with self._lock:
             conn = self.get_connection()
             cursor = conn.cursor()
             timestamp = datetime.now().isoformat()
             signals_json = json.dumps(signals) if signals is not None else None
+
+            if classification is None:
+                sev_upper = str(severity).upper()
+                if sev_upper in ("CONFIRMED_MALWARE", "CRITICAL"):
+                    classification = "CONFIRMED_MALWARE"
+                elif sev_upper in ("THREAT", "HIGH"):
+                    classification = "THREAT"
+                elif sev_upper in ("SUSPICIOUS", "MEDIUM"):
+                    classification = "SUSPICIOUS"
+                elif sev_upper in ("LOW_RISK", "LOW"):
+                    classification = "LOW_RISK"
+                else:
+                    classification = "CLEAN"
+
             cursor.execute("""
                 INSERT INTO guardian_events 
-                (timestamp, file_path, detector, reason, severity, risk_score, signals_json, status)
-                VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-            """, (timestamp, file_path, detector, reason, severity, risk_score, signals_json))
+                (timestamp, file_path, event_type, detector, reason, severity, classification, risk_score, signals_json, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')
+            """, (timestamp, file_path, event_type, detector, reason, severity, classification, risk_score, signals_json))
             conn.commit()
             return cursor.lastrowid
 
@@ -401,9 +427,26 @@ class DBManager:
         cursor.execute("SELECT COUNT(*) FROM anomalies WHERE timestamp >= ?", (cutoff,))
         anomalies_count = cursor.fetchone()[0]
 
+        # Confirmed threats & malware
+        cursor.execute("""
+            SELECT COUNT(*) FROM guardian_events 
+            WHERE timestamp >= ? AND (severity IN ('HIGH', 'CRITICAL') OR classification IN ('THREAT', 'CONFIRMED_MALWARE'))
+        """, (cutoff,))
+        threats_count = cursor.fetchone()[0]
+
         # Suspicious detections
-        cursor.execute("SELECT COUNT(*) FROM guardian_events WHERE timestamp >= ? AND severity IN ('MEDIUM', 'HIGH', 'CRITICAL')", (cutoff,))
+        cursor.execute("""
+            SELECT COUNT(*) FROM guardian_events 
+            WHERE timestamp >= ? AND (severity = 'MEDIUM' OR classification = 'SUSPICIOUS')
+        """, (cutoff,))
         suspicious_count = cursor.fetchone()[0]
+
+        # Low risk findings
+        cursor.execute("""
+            SELECT COUNT(*) FROM guardian_events 
+            WHERE timestamp >= ? AND (severity = 'LOW' OR classification = 'LOW_RISK')
+        """, (cutoff,))
+        low_risk_count = cursor.fetchone()[0]
 
         # Quarantined files
         cursor.execute("SELECT COUNT(*) FROM quarantine_log WHERE quarantined_at >= ?", (cutoff,))
@@ -418,7 +461,9 @@ class DBManager:
         recent_anomalies = [dict(row) for row in cursor.fetchall()]
 
         status_assessment = "Everything is stable."
-        if suspicious_count > 0 or anomalies_count > 5:
+        if threats_count > 0:
+            status_assessment = f"Threats detected ({threats_count}) — Action recommended."
+        elif suspicious_count > 0 or anomalies_count > 5:
             status_assessment = "Attention recommended — unusual activity was detected."
 
         return {
@@ -426,7 +471,9 @@ class DBManager:
             "cleanups_count": cleanups_count,
             "space_recovered_mb": round(space_recovered_mb, 1),
             "anomalies_count": anomalies_count,
+            "threats_count": threats_count,
             "suspicious_count": suspicious_count,
+            "low_risk_count": low_risk_count,
             "quarantined_count": quarantined_count,
             "process_starts_count": proc_starts_count,
             "recent_anomalies": recent_anomalies,

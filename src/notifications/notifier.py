@@ -136,14 +136,15 @@ class Notifier:
         if not self.enabled:
             return
 
-        title = "⚠ Ghost OS"
+        title = "🔍 Ghost OS — Security Notice"
         filename = os.path.basename(file_path)
+        display_class = str(classification).upper().replace("_", " ")
         message = (
-            f"Something unusual was detected.\n\n"
-            f"{filename}\n"
-            f"Risk: {classification} ({risk_score}/100)\n"
-            f"{reason}\n\n"
-            f"No action was taken. Review recommended."
+            f"Suspicious activity observed:\n\n"
+            f"File: {filename}\n"
+            f"Classification: {display_class} ({risk_score}/100)\n"
+            f"Reason: {reason}\n\n"
+            f"No action taken. Logged for review."
         )
 
         key = f"suspicious:{file_path}"
@@ -165,9 +166,16 @@ class Notifier:
             return
 
         filename = os.path.basename(file_path)
-        icon = {"CRITICAL": "🛡", "HIGH": "⚠", "MEDIUM": "⚠"}.get(severity, "👻")
-        title = f"{icon} Ghost OS — Potential Threat Detected"
-        message = f"File: {filename}\nLocation: {file_path}\nAssessment: {severity}\nReason: {reason}"
+        sev_upper = str(severity).upper()
+        if "MALWARE" in sev_upper or "CRITICAL" in sev_upper:
+            title = "🛡 Ghost OS — Confirmed Malware Alert"
+        elif "THREAT" in sev_upper or "HIGH" in sev_upper:
+            title = "⚠ Ghost OS — Potential Threat Detected"
+        else:
+            title = "🔍 Ghost OS — Security Review"
+
+        display_class = sev_upper.replace("_", " ")
+        message = f"File: {filename}\nLocation: {file_path}\nClassification: {display_class}\nReason: {reason}"
 
         key = f"alert:{event_id}:{file_path}"
         send_now, suppressed = self._should_send(key)
@@ -199,6 +207,20 @@ class Notifier:
                 self.fallback_alert_handler(event_id, file_path, reason, severity)
             except Exception as e:
                 logger.error(f"Fallback alert handler failed: {e}")
+
+    def send_test_threat_notification(self, on_response=None):
+        """Dispatches a safe synthetic test security alert to verify toast delivery and action handling."""
+        event_id = f"test_evt_{int(time.time())}"
+        test_file = os.path.join(os.environ.get("TEMP", "C:\\Temp"), "invoice_sample.pdf.exe")
+        reason = "Test Security Alert (Safe fixture) — Disguised executable extension (.pdf.exe)"
+        severity = "HIGH"
+
+        def _default_callback(eid, fp, act):
+            logger.info(f"Test alert response received: event_id={eid}, action={act}")
+
+        callback = on_response or _default_callback
+        self.alert_detection(event_id, test_file, reason, severity, callback)
+        return event_id
 
     def notify_quarantined(self, file_path, risk_score):
         if not self.enabled:

@@ -48,7 +48,19 @@ class SafetyEngine:
         return (process_name or "").lower() in self.protected_processes
 
     def is_path_protected(self, file_path):
-        normalized = os.path.normpath(os.path.realpath(file_path)).lower()
+        try:
+            normalized = os.path.normpath(os.path.realpath(file_path)).lower()
+        except Exception:
+            normalized = os.path.normpath(file_path).lower()
+
+        # Windows Temp contents (e.g. C:\Windows\Temp\...) are disposable,
+        # but the C:\Windows\Temp root directory itself is protected.
+        win_temp = os.path.normpath(os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "Temp")).lower()
+        if normalized == win_temp:
+            return True
+        if normalized.startswith(win_temp + os.sep):
+            return False
+
         for protected in self.protected_paths:
             if normalized == protected or normalized.startswith(protected + os.sep):
                 return True

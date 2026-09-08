@@ -125,14 +125,21 @@ class ManualScanJob:
                         analysis = self.threat_sentinel.analyze_file(file_path)
                         if analysis:
                             severity, outcome, reason = self.decision_engine.decide_for_file_risk(analysis)
-                            if outcome in (ASK_USER, NOTIFY):
+                            classification = analysis.get("classification", severity)
+                            score = analysis.get("risk_score", 0)
+
+                            if outcome in (ASK_USER, NOTIFY) or score >= 20:
                                 self.flagged_items.append({
                                     "file_path": file_path,
-                                    "risk_score": analysis.get("risk_score", 0),
-                                    "classification": severity,
+                                    "risk_score": score,
+                                    "classification": classification,
+                                    "severity": severity,
                                     "category": analysis.get("category", "unknown"),
                                     "outcome": outcome,
                                     "reason": reason,
+                                    "publisher": analysis.get("publisher"),
+                                    "signature_status": analysis.get("signature_status", "unknown"),
+                                    "defender_status": analysis.get("defender_status"),
                                     "signals": analysis.get("signals", [])
                                 })
                     except Exception as fe:
@@ -153,6 +160,11 @@ class ManualScanJob:
             self.is_running = False
             self.end_time = time.time()
 
+            threats_count = sum(1 for item in self.flagged_items if item.get("classification") in ("THREAT", "CONFIRMED_MALWARE", "HIGH", "CRITICAL"))
+            suspicious_count = sum(1 for item in self.flagged_items if item.get("classification") in ("SUSPICIOUS", "MEDIUM"))
+            low_risk_count = sum(1 for item in self.flagged_items if item.get("classification") in ("LOW_RISK", "LOW"))
+            clean_count = max(0, self.scanned_count - (threats_count + suspicious_count + low_risk_count))
+
             result = {
                 "job_id": self.job_id,
                 "state": self.state,
@@ -160,6 +172,10 @@ class ManualScanJob:
                 "total_files": self.total_files,
                 "scanned_count": self.scanned_count,
                 "flagged_count": len(self.flagged_items),
+                "threats_count": threats_count,
+                "suspicious_count": suspicious_count,
+                "low_risk_count": low_risk_count,
+                "clean_count": clean_count,
                 "flagged_items": self.flagged_items,
                 "duration_seconds": round((self.end_time or time.time()) - (self.start_time or time.time()), 2),
                 "error": self.error

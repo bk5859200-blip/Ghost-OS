@@ -658,6 +658,45 @@ class GhostCore:
         t = threading.Thread(target=worker, name="ghost_cleanup_worker", daemon=True)
         t.start()
 
+    def _periodic_cleanup_loop(self):
+        """
+        Runs every 5 minutes in the background, evaluates disposable locations, and
+        triggers an actionable notification with deduplication.
+        """
+        interval = self.config.get("cleanup", {}).get("check_interval_seconds", 300)
+        last_notified_hash = None
+
+        while not self._stop_event.is_set():
+            if self._stop_event.wait(interval):
+                break
+
+            if self._pause_event.is_set():
+                continue
+
+            try:
+                if not self.config.get("cleanup", {}).get("enabled", True):
+                    continue
+
+                candidates = self.cleaner.discover()
+                safe_candidates = [c for c in candidates if c.get("status") == "SAFE TO CLEAN"]
+                count = len(safe_candidates)
+                size_mb = sum(c.get("size_mb", 0.0) for c in safe_candidates)
+
+                # Only notify if meaningful candidates exist (>= 5 MB or >= 10 files)
+                if (size_mb >= 5.0 or count >= 10) and not self._cleanup_lock.locked():
+                    current_hash = f"{count}_{round(size_mb, 1)}"
+                    if current_hash != last_notified_hash:
+                        last_notified_hash = current_hash
+                        self.notifier.notify_cleanup_proposal(
+                            count=count,
+                            size_mb=size_mb,
+                            on_review=lambda: self._trigger_ui_tab("cleanup"),
+                            on_clean_now=lambda: self.run_cleanup_now(),
+                            on_later=lambda: None
+                        )
+            except Exception as e:
+                logger.error(f"Error in periodic cleanup check: {e}")
+
     # ------------------------------------------------------------- Diagnostics & Scans
     def create_manual_scan(self, on_progress=None, on_complete=None):
         """Creates a finite manual scan job across configured watch folders."""

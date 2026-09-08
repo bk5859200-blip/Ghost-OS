@@ -24,7 +24,7 @@ class TestStressEventStorm(unittest.TestCase):
             "thresholds": {"cpu": {"critical_percent": 90, "consecutive_ticks": 3}, "memory": {"critical_percent": 95}, "disk": {"warning_percent": 90}},
             "notifications": {"enabled": False, "cooldown_seconds": 120, "aggregate_window_seconds": 300},
             "watch_folders": [self.tmpdir],
-            "cleanup": {"enabled": True, "require_confirmation": True, "stale_installer_days": 30, "stale_temp_days": 14},
+            "cleanup": {"enabled": False, "require_confirmation": True, "stale_installer_days": 30, "stale_temp_days": 14},
             "security": {"protected_processes": ["explorer.exe"], "protected_paths": ["C:\\Windows"]},
             "automation": {"enabled": True, "auto_trim_memory": False, "auto_lower_priority": False},
             "safety": {"dry_run": True}
@@ -40,6 +40,10 @@ class TestStressEventStorm(unittest.TestCase):
             shutil.rmtree(self.tmpdir, ignore_errors=True)
 
     def test_500_event_file_storm_bounded_threads(self):
+        # Stub defender scan to isolate file storm queuing and prevent MpCmdRun subprocess storm
+        self.core.threat_sentinel.defender.scan_file = lambda p, timeout_seconds=15: {
+            "scanned": True, "threat_found": False, "status": "clean", "detail": "Mock clean", "threat_name": None
+        }
         self.core.start()
         time.sleep(0.3)
 

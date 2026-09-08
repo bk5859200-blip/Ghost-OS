@@ -1130,7 +1130,10 @@ class ControlCenterApp:
         self.lbl_cleanup_avail_size.configure(text=f"{safe_size:.1f} MB")
         self.lbl_card_cleanup.configure(text=f"{safe_size:.1f} MB")
         self.lbl_card_cleanup_sub.configure(text=f"{safe_count} files ready")
-        self.lbl_cleanup_status.configure(text=f"Found {safe_count} safe removable items ({safe_size:.1f} MB). Review and click Clean.")
+        if safe_count == 0:
+            self.lbl_cleanup_status.configure(text="No temporary files are currently eligible for cleanup.")
+        else:
+            self.lbl_cleanup_status.configure(text=f"{safe_count} files can be cleaned ({safe_size:.1f} MB recoverable).")
 
     def _execute_cleanup_all(self):
         safe_items = [c for c in self._cleanup_candidates if c.get("status") == "SAFE TO CLEAN"]

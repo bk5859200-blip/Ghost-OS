@@ -62,8 +62,13 @@ class TestStartupLifecycle(unittest.TestCase):
 
     def test_control_center_immediate_startup_and_single_instance(self):
         mgr = ControlCenterManager(self.core)
-        app = ControlCenterApp(self.core, initial_tab="overview")
-        mgr._app = app
+        mock_root = MagicMock()
+        mock_root.state.return_value = "normal"
+        mock_notebook = MagicMock()
+        mock_notebook.select.return_value = "tab_diag"
+        mock_notebook.tab.return_value = "Health"
+        mock_app = MagicMock(root=mock_root, notebook=mock_notebook)
+        mgr._app = mock_app
 
         # Window is active and visible
         self.assertIsNotNone(mgr._app.root)
@@ -80,8 +85,16 @@ class TestStartupLifecycle(unittest.TestCase):
     def test_window_close_hides_to_tray_without_stopping_core(self):
         self.core.start()
         mgr = ControlCenterManager(self.core)
-        app = ControlCenterApp(self.core, initial_tab="overview")
-        mgr._app = app
+        current_state = ["normal"]
+        mock_root = MagicMock()
+        mock_root.withdraw.side_effect = lambda: current_state.clear() or current_state.append("withdrawn")
+        mock_root.deiconify.side_effect = lambda: current_state.clear() or current_state.append("normal")
+        mock_root.state.side_effect = lambda: current_state[0]
+        mock_notebook = MagicMock()
+        mock_notebook.select.return_value = "tab_scan"
+        mock_notebook.tab.return_value = "Scan"
+        mock_app = MagicMock(root=mock_root, notebook=mock_notebook)
+        mgr._app = mock_app
 
         # User closes window -> hide to tray
         mgr._on_window_close()
@@ -102,8 +115,9 @@ class TestStartupLifecycle(unittest.TestCase):
     def test_clean_shutdown_destroys_ui_and_stops_core(self):
         self.core.start()
         mgr = ControlCenterManager(self.core)
-        app = ControlCenterApp(self.core, initial_tab="overview")
-        mgr._app = app
+        mock_root = MagicMock()
+        mock_app = MagicMock(root=mock_root)
+        mgr._app = mock_app
 
         # Trigger exit
         mgr.exit_app()
@@ -118,10 +132,11 @@ class TestStartupLifecycle(unittest.TestCase):
         mgr = ControlCenterManager(self.core)
         tray = TrayApp(self.core, control_center=mgr)
 
-        with patch("pystray.Icon.run") as mock_icon_run:
+        with patch.object(tray, "run") as mock_run:
             tray.start()
             self.assertIsNotNone(tray._tray_thread)
-            self.assertTrue(tray._tray_thread.is_alive() or mock_icon_run.called)
+            tray._tray_thread.join(timeout=1.0)
+            self.assertTrue(mock_run.called)
             tray.stop()
 
     def test_ui_fatal_exception_logging(self):

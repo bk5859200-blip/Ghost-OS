@@ -85,32 +85,55 @@ class QuarantineManager:
         self.db_mgr.resolve_guardian_event(event_id, "ignored")
         logger.info(f"Guardian event {event_id} ignored by user.")
 
-    def restore_file(self, quarantine_path, original_path):
+    def restore_file(self, quarantine_path, original_path=None):
         """Restores an isolated file back to its original location and verifies hash integrity."""
         try:
             if not os.path.exists(quarantine_path):
                 logger.warning(f"Quarantine file not found: {quarantine_path}")
-                return False
+                return False, f"Quarantine file not found on disk: {quarantine_path}"
 
             record = self.db_mgr.get_quarantine_by_path(quarantine_path)
+            target_path = original_path or (record.get("original_path") if record else None)
+            if not target_path:
+                return False, "Could not determine original destination path."
+
             expected_hash = record.get("file_hash") if record else None
 
-            os.makedirs(os.path.dirname(original_path), exist_ok=True)
-            shutil.move(quarantine_path, original_path)
+            os.makedirs(os.path.dirname(target_path), exist_ok=True)
+            shutil.move(quarantine_path, target_path)
 
-            restored_hash = self._calculate_sha256(original_path)
+            restored_hash = self._calculate_sha256(target_path)
             if expected_hash and restored_hash and expected_hash != restored_hash:
                 logger.error(
-                    f"Integrity check failed after restore! Expected SHA-256 {expected_hash}, got {restored_hash} for {original_path}"
+                    f"Integrity check failed after restore! Expected SHA-256 {expected_hash}, got {restored_hash} for {target_path}"
                 )
-                return False
+                return False, "Integrity check failed: file hash mismatch."
 
             self.db_mgr.mark_quarantine_restored(quarantine_path)
-            logger.info(f"Restored file {quarantine_path} -> {original_path} (SHA-256 verified: {restored_hash})")
-            return True
+            logger.info(f"Restored file {quarantine_path} -> {target_path} (SHA-256 verified: {restored_hash})")
+            return True, None
         except Exception as e:
             logger.error(f"Failed to restore {quarantine_path}: {e}")
-            return False
+            return False, str(e)
+
+    def get_quarantined_items(self):
+        """Retrieves all quarantined file records joined with guardian event metadata from SQLite."""
+        try:
+            conn = self.db_mgr.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT q.id, q.event_id, q.original_path, q.quarantine_path, q.file_hash,
+                       q.file_size, q.quarantined_at, q.restored, q.restored_at,
+                       g.reason, g.severity, g.classification, g.risk_score
+                FROM quarantine_log q
+                LEFT JOIN guardian_events g ON q.event_id = g.id
+                ORDER BY q.id DESC
+            """)
+            rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except Exception as e:
+            logger.error(f"Failed to fetch quarantined items from DB: {e}")
+            return []
 
     def list_quarantined(self):
         """Returns list of all active quarantined files on disk."""

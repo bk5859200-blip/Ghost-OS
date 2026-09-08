@@ -82,9 +82,8 @@ class SystemCleaner:
     def _is_file_locked(self, file_path):
         """Checks non-intrusively whether a file is currently opened/locked by another process."""
         try:
-            # Attempt to open exclusively or read without modifying
-            with open(file_path, "rb"):
-                pass
+            # On Windows, attempting to rename a file to itself tests write/exclusive access without altering content
+            os.rename(file_path, file_path)
             return False
         except (PermissionError, OSError):
             return True
@@ -127,6 +126,9 @@ class SystemCleaner:
 
                         if min_age_seconds > 0 and age_sec < min_age_seconds:
                             files_skipped_new += 1
+                            continue
+
+                        if self._is_file_locked(file_path):
                             continue
 
                         size = st.st_size

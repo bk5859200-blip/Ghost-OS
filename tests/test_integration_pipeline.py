@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 import tempfile
 import unittest
 
@@ -93,6 +94,8 @@ class TestIntegrationPipeline(unittest.TestCase):
         temp_file = os.path.join(self.clean_dir, "junk.tmp")
         with open(temp_file, "wb") as f:
             f.write(b"temporary data" * 100)
+        old_time = time.time() - (48 * 3600)
+        os.utime(temp_file, (old_time, old_time))
 
         self.core.cleaner.disposable_roots = [self.clean_dir]
         preview = self.core.cleaner.preview()
@@ -100,7 +103,7 @@ class TestIntegrationPipeline(unittest.TestCase):
 
         result = self.core.cleaner.execute(preview["candidates"])
         self.assertTrue(result["dry_run"])
-        self.assertEqual(result["files_removed"], 0)
+        self.assertEqual(result["files_removed"], 1)
         self.assertTrue(os.path.exists(temp_file))  # Dry run leaves file intact
 
         # Verify cleanup event logged

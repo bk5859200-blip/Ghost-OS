@@ -127,6 +127,10 @@ class SystemCleaner:
                         size = st.st_size
                         category = self._classify_item(file_path)
                         age_h = round(age_sec / 3600.0, 1)
+                        age_days = round(age_h / 24.0, 1)
+                        age_desc = f"{age_days}d old" if age_days >= 1.0 else f"{age_h}h old"
+
+                        reason = f"Stale {category.lower()} (>24h)" if age_h >= 24.0 else f"Disposable {category.lower()}"
 
                         candidates.append({
                             "path": file_path,
@@ -134,9 +138,12 @@ class SystemCleaner:
                             "size": size,
                             "size_mb": round(size / (1024 * 1024), 3),
                             "category": category,
+                            "reason": reason,
+                            "status": "SAFE TO REMOVE",
                             "is_dir": False,
                             "mtime": mtime,
                             "age_hours": age_h,
+                            "age_display": age_desc,
                             "root_folder": root
                         })
                     except (PermissionError, OSError) as e:
@@ -256,7 +263,12 @@ class SystemCleaner:
                     dirs_removed=dirs_removed,
                     space_recovered_mb=space_mb,
                     categories=categories_recovered,
-                    dry_run=dry_run
+                    dry_run=dry_run,
+                    files_examined=files_examined,
+                    files_skipped_in_use=files_skipped_in_use,
+                    files_skipped_new=self._last_skipped_new,
+                    errors_count=errors,
+                    duration_seconds=duration_sec
                 )
             except Exception as e:
                 logger.error(f"Failed to log cleanup event to database: {e}")

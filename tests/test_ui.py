@@ -52,6 +52,11 @@ class TestControlCenterUI(unittest.TestCase):
         app._select_tab("quarantine")
         self.assertIn("Quarantine", app.notebook.tab(app.notebook.select(), "text"))
 
+        app._select_tab("cleanup")
+        self.assertIn("Cleanup", app.notebook.tab(app.notebook.select(), "text"))
+        self.assertIsNotNone(app.tree_cleanup_hist)
+        self.assertIsNotNone(app.lbl_cleanup_avail_size)
+
         app._select_tab("activity")
         self.assertIn("Activity", app.notebook.tab(app.notebook.select(), "text"))
 

@@ -193,9 +193,27 @@ class DBManager:
                     dirs_removed INTEGER NOT NULL,
                     space_recovered_mb REAL NOT NULL,
                     categories_json TEXT,
-                    dry_run INTEGER NOT NULL DEFAULT 1
+                    dry_run INTEGER NOT NULL DEFAULT 1,
+                    files_examined INTEGER DEFAULT 0,
+                    files_skipped_in_use INTEGER DEFAULT 0,
+                    files_skipped_new INTEGER DEFAULT 0,
+                    errors_count INTEGER DEFAULT 0,
+                    duration_seconds REAL DEFAULT 0.0
                 )
             """)
+
+            # Schema migration for existing cleanup_events tables
+            for col, dtype in [
+                ("files_examined", "INTEGER DEFAULT 0"),
+                ("files_skipped_in_use", "INTEGER DEFAULT 0"),
+                ("files_skipped_new", "INTEGER DEFAULT 0"),
+                ("errors_count", "INTEGER DEFAULT 0"),
+                ("duration_seconds", "REAL DEFAULT 0.0")
+            ]:
+                try:
+                    cursor.execute(f"ALTER TABLE cleanup_events ADD COLUMN {col} {dtype};")
+                except sqlite3.OperationalError:
+                    pass
 
             # 7. Notifications Log
             cursor.execute("""
@@ -326,18 +344,43 @@ class DBManager:
             row = cursor.fetchone()
             return dict(row) if row else None
 
-    def log_cleanup_event(self, files_removed, dirs_removed, space_recovered_mb, categories=None, dry_run=True):
+    def log_cleanup_event(self, files_removed, dirs_removed, space_recovered_mb, categories=None, dry_run=True,
+                          files_examined=0, files_skipped_in_use=0, files_skipped_new=0, errors_count=0, duration_seconds=0.0):
         with self._lock:
             conn = self.get_connection()
             cursor = conn.cursor()
             timestamp = datetime.now().isoformat()
             categories_json = json.dumps(categories) if categories is not None else None
             cursor.execute("""
-                INSERT INTO cleanup_events (timestamp, files_removed, dirs_removed, space_recovered_mb, categories_json, dry_run)
-                VALUES (?, ?, ?, ?, ?, ?)
-            """, (timestamp, files_removed, dirs_removed, space_recovered_mb, categories_json, 1 if dry_run else 0))
+                INSERT INTO cleanup_events (
+                    timestamp, files_removed, dirs_removed, space_recovered_mb, categories_json, dry_run,
+                    files_examined, files_skipped_in_use, files_skipped_new, errors_count, duration_seconds
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                timestamp, files_removed, dirs_removed, space_recovered_mb, categories_json, 1 if dry_run else 0,
+                files_examined, files_skipped_in_use, files_skipped_new, errors_count, duration_seconds
+            ))
             conn.commit()
             return cursor.lastrowid
+
+    def get_recent_cleanup_events(self, limit=50):
+        self.flush()
+        with self._lock:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM cleanup_events ORDER BY id DESC LIMIT ?", (limit,))
+            rows = cursor.fetchall()
+            return [dict(r) for r in rows]
+
+    def get_last_cleanup_info(self):
+        self.flush()
+        with self._lock:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM cleanup_events ORDER BY id DESC LIMIT 1")
+            row = cursor.fetchone()
+            return dict(row) if row else None
 
     def log_notification(self, title, message, signal_key=None, severity="INFO", suppressed_count=0, delivered=True):
         with self._lock:

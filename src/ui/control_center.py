@@ -143,6 +143,7 @@ class ControlCenterApp:
         self.tab_scan = ttk.Frame(self.notebook)
         self.tab_threats = ttk.Frame(self.notebook)
         self.tab_quarantine = ttk.Frame(self.notebook)
+        self.tab_cleanup = ttk.Frame(self.notebook)
         self.tab_activity = ttk.Frame(self.notebook)
         self.tab_settings = ttk.Frame(self.notebook)
         self.tab_diagnostics = ttk.Frame(self.notebook)
@@ -151,6 +152,7 @@ class ControlCenterApp:
         self.notebook.add(self.tab_scan, text="  Quick Scan  ")
         self.notebook.add(self.tab_threats, text="  Detections & Threats  ")
         self.notebook.add(self.tab_quarantine, text="  Quarantine Vault  ")
+        self.notebook.add(self.tab_cleanup, text="  Junk & Temp Cleanup  ")
         self.notebook.add(self.tab_activity, text="  Activity Log  ")
         self.notebook.add(self.tab_settings, text="  Policy Settings  ")
         self.notebook.add(self.tab_diagnostics, text="  Diagnostics  ")
@@ -159,9 +161,12 @@ class ControlCenterApp:
         self._build_scan_tab()
         self._build_threats_tab()
         self._build_quarantine_tab()
+        self._build_cleanup_tab()
         self._build_activity_tab()
         self._build_settings_tab()
         self._build_diagnostics_tab()
+
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
     # ------------------------------------------------------------- 1. OVERVIEW TAB
     def _build_overview_tab(self):
@@ -515,7 +520,142 @@ class ControlCenterApp:
         self.tree_quarantine.pack(side="left", fill="both", expand=True)
         scroll_q.pack(side="right", fill="y")
 
-    # ------------------------------------------------------------- 5. ACTIVITY HISTORY TAB
+    # ------------------------------------------------------------- 5. JUNK & TEMP CLEANUP TAB
+    def _build_cleanup_tab(self):
+        f = self.tab_cleanup
+
+        # Header card
+        header_frame = ttk.Frame(f, style="Card.TFrame", padding=12)
+        header_frame.pack(fill="x", padx=10, pady=(10, 6))
+
+        ttk.Label(header_frame, text="Windows Temporary & Junk Cleaner", style="Header.TLabel").pack(anchor="w")
+        ttk.Label(
+            header_frame,
+            text="Safely recovers disk space by removing stale temporary files (>24h), cache, and crash dumps across Windows Temp locations.",
+            style="Subheader.TLabel"
+        ).pack(anchor="w", pady=(2, 6))
+
+        # Metrics 1x4 Grid Row
+        metrics_frame = tk.Frame(f, bg=BG_DARK)
+        metrics_frame.pack(fill="x", padx=10, pady=2)
+        for col in range(4):
+            metrics_frame.columnconfigure(col, weight=1)
+
+        # Card 1: Removable Junk Available
+        c_junk = ttk.Frame(metrics_frame, style="Card.TFrame", padding=8)
+        c_junk.grid(row=0, column=0, padx=4, pady=2, sticky="nsew")
+        ttk.Label(c_junk, text="Removable Junk Available", style="Subheader.TLabel").pack(anchor="w")
+        self.lbl_cleanup_avail_size = ttk.Label(c_junk, text="Calculating...", style="Value.TLabel")
+        self.lbl_cleanup_avail_size.pack(anchor="w", pady=2)
+
+        # Card 2: Total Space Recovered
+        c_total = ttk.Frame(metrics_frame, style="Card.TFrame", padding=8)
+        c_total.grid(row=0, column=1, padx=4, pady=2, sticky="nsew")
+        ttk.Label(c_total, text="Total Space Recovered", style="Subheader.TLabel").pack(anchor="w")
+        self.lbl_cleanup_total_cleaned = ttk.Label(c_total, text="0.0 MB (0 runs)", style="Value.TLabel")
+        self.lbl_cleanup_total_cleaned.pack(anchor="w", pady=2)
+
+        # Card 3: Last Cleanup Run
+        c_last = ttk.Frame(metrics_frame, style="Card.TFrame", padding=8)
+        c_last.grid(row=0, column=2, padx=4, pady=2, sticky="nsew")
+        ttk.Label(c_last, text="Last Cleanup Run", style="Subheader.TLabel").pack(anchor="w")
+        self.lbl_cleanup_last_run = ttk.Label(c_last, text="Never", style="Value.TLabel")
+        self.lbl_cleanup_last_run.pack(anchor="w", pady=2)
+
+        # Card 4: Policy & Mode
+        c_policy = ttk.Frame(metrics_frame, style="Card.TFrame", padding=8)
+        c_policy.grid(row=0, column=3, padx=4, pady=2, sticky="nsew")
+        ttk.Label(c_policy, text="Policy / Mode", style="Subheader.TLabel").pack(anchor="w")
+        self.lbl_cleanup_policy_mode = ttk.Label(c_policy, text="LIVE (>24h)", style="Value.TLabel")
+        self.lbl_cleanup_policy_mode.pack(anchor="w", pady=2)
+
+        # Target Locations & Safety Guarantees Card
+        info_frame = ttk.Frame(f, style="Card.TFrame", padding=10)
+        info_frame.pack(fill="x", padx=10, pady=4)
+
+        info_header = tk.Frame(info_frame, bg=BG_CARD)
+        info_header.pack(fill="x")
+        ttk.Label(info_header, text="Target Locations & Safety Guarantees", style="Header.TLabel").pack(side="left")
+
+        # Discover paths for display
+        home = os.path.expanduser("~")
+        user_temp = os.environ.get("TEMP", os.path.join(home, "AppData", "Local", "Temp"))
+        win_temp = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "Temp")
+        dumps_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.join(home, "AppData", "Local")), "CrashDumps")
+
+        loc_text = f"• User Temp (%TEMP%): {user_temp}\n• Windows System Temp (%WINDIR%\\Temp): {win_temp}\n• Crash Dumps (%LOCALAPPDATA%\\CrashDumps): {dumps_dir}"
+        lbl_loc = tk.Label(info_frame, text=loc_text, bg=BG_CARD, fg=FG_MUTED, justify="left", font=("Segoe UI", 8))
+        lbl_loc.pack(anchor="w", pady=(4, 6))
+
+        badges_frame = tk.Frame(info_frame, bg=BG_CARD)
+        badges_frame.pack(fill="x")
+        tk.Label(badges_frame, text="✓ Stale Filter (>24h)", bg=BG_INPUT, fg=ACCENT_GREEN, font=("Segoe UI", 8, "bold"), padx=6, pady=2).pack(side="left", padx=(0, 6))
+        tk.Label(badges_frame, text="✓ Locked Files Skipped Safely", bg=BG_INPUT, fg=ACCENT_BLUE, font=("Segoe UI", 8, "bold"), padx=6, pady=2).pack(side="left", padx=(0, 6))
+        tk.Label(badges_frame, text="✓ Zero Process Killing", bg=BG_INPUT, fg=ACCENT_GREEN, font=("Segoe UI", 8, "bold"), padx=6, pady=2).pack(side="left", padx=(0, 6))
+        tk.Label(badges_frame, text="✓ SafetyEngine Protected Paths", bg=BG_INPUT, fg=ACCENT_PURPLE, font=("Segoe UI", 8, "bold"), padx=6, pady=2).pack(side="left")
+
+        # Action Buttons & Progress Bar
+        action_frame = ttk.Frame(f, style="Card.TFrame", padding=10)
+        action_frame.pack(fill="x", padx=10, pady=4)
+
+        btn_row = tk.Frame(action_frame, bg=BG_CARD)
+        btn_row.pack(fill="x")
+
+        self.btn_cleanup_clean_now = ttk.Button(btn_row, text="🧹 Clean Now", style="Accent.TButton",
+                                                command=self._trigger_cleanup_tab_action)
+        self.btn_cleanup_clean_now.pack(side="left", padx=(0, 8))
+
+        self.btn_cleanup_review = ttk.Button(btn_row, text="📋 Review Candidates", style="Secondary.TButton",
+                                             command=self._show_cleanup_review_dialog)
+        self.btn_cleanup_review.pack(side="left", padx=(0, 8))
+
+        self.btn_cleanup_refresh = ttk.Button(btn_row, text="🔄 Refresh Scan", style="Secondary.TButton",
+                                              command=self._refresh_cleanup_tab)
+        self.btn_cleanup_refresh.pack(side="left", padx=(0, 8))
+
+        self.btn_cleanup_settings = ttk.Button(btn_row, text="⚙ Cleanup Settings", style="Secondary.TButton",
+                                               command=lambda: self._select_tab("settings"))
+        self.btn_cleanup_settings.pack(side="left")
+
+        self.cleanup_progress = ttk.Progressbar(action_frame, style="Accent.Horizontal.TProgressbar", mode="determinate")
+        self.cleanup_progress.pack(fill="x", pady=(8, 4))
+
+        self.lbl_cleanup_status = ttk.Label(action_frame, text="Ready. Click 'Clean Now' or 'Review Candidates'.", style="Subheader.TLabel")
+        self.lbl_cleanup_status.pack(anchor="w")
+
+        # History Treeview Frame
+        hist_frame = ttk.Frame(f, style="Card.TFrame", padding=10)
+        hist_frame.pack(fill="both", expand=True, padx=10, pady=(4, 10))
+
+        ttk.Label(hist_frame, text="Recent Cleanup Operations & History", style="Header.TLabel").pack(anchor="w", pady=(0, 4))
+
+        cols = ("time", "mode", "space", "files", "dirs", "skipped_in_use", "skipped_new", "duration")
+        self.tree_cleanup_hist = ttk.Treeview(hist_frame, columns=cols, show="headings", selectmode="browse")
+        self.tree_cleanup_hist.heading("time", text="Timestamp")
+        self.tree_cleanup_hist.heading("mode", text="Mode")
+        self.tree_cleanup_hist.heading("space", text="Space Recovered")
+        self.tree_cleanup_hist.heading("files", text="Files Removed")
+        self.tree_cleanup_hist.heading("dirs", text="Folders Pruned")
+        self.tree_cleanup_hist.heading("skipped_in_use", text="In-Use Skipped")
+        self.tree_cleanup_hist.heading("skipped_new", text="Preserved (<24h)")
+        self.tree_cleanup_hist.heading("duration", text="Duration")
+
+        self.tree_cleanup_hist.column("time", width=140, anchor="center")
+        self.tree_cleanup_hist.column("mode", width=85, anchor="center")
+        self.tree_cleanup_hist.column("space", width=110, anchor="center")
+        self.tree_cleanup_hist.column("files", width=100, anchor="center")
+        self.tree_cleanup_hist.column("dirs", width=100, anchor="center")
+        self.tree_cleanup_hist.column("skipped_in_use", width=100, anchor="center")
+        self.tree_cleanup_hist.column("skipped_new", width=110, anchor="center")
+        self.tree_cleanup_hist.column("duration", width=80, anchor="center")
+
+        scroll_c = ttk.Scrollbar(hist_frame, orient="vertical", command=self.tree_cleanup_hist.yview)
+        self.tree_cleanup_hist.configure(yscrollcommand=scroll_c.set)
+
+        self.tree_cleanup_hist.pack(side="left", fill="both", expand=True)
+        scroll_c.pack(side="right", fill="y")
+
+    # ------------------------------------------------------------- 6. ACTIVITY HISTORY TAB
     def _build_activity_tab(self):
         f = self.tab_activity
 
@@ -639,6 +779,24 @@ class ControlCenterApp:
         self.txt_diagnostics.insert("1.0", "Click 'Run Full Diagnostics' to evaluate all subsystems.\n")
 
     # ------------------------------------------------------------- LOGIC & ACTIONS
+    def _on_tab_changed(self, event=None):
+        try:
+            selected_tab_id = self.notebook.select()
+            if not selected_tab_id:
+                return
+            if selected_tab_id == str(self.tab_threats):
+                self._load_threats_data()
+            elif selected_tab_id == str(self.tab_quarantine):
+                self._load_quarantine_data()
+            elif selected_tab_id == str(self.tab_cleanup):
+                self._load_cleanup_tab_data()
+            elif selected_tab_id == str(self.tab_activity):
+                self._load_activity_data()
+            elif selected_tab_id == str(self.tab_overview):
+                self._update_overview_telemetry()
+        except Exception as e:
+            logger.debug(f"Tab changed event handling error: {e}")
+
     def _select_tab(self, tab_name):
         mapping = {
             "overview": self.tab_overview,
@@ -647,6 +805,9 @@ class ControlCenterApp:
             "detections": self.tab_threats,
             "security": self.tab_threats,
             "quarantine": self.tab_quarantine,
+            "cleanup": self.tab_cleanup,
+            "junk": self.tab_cleanup,
+            "temp": self.tab_cleanup,
             "activity": self.tab_activity,
             "policy": self.tab_settings,
             "settings": self.tab_settings,
@@ -658,6 +819,8 @@ class ControlCenterApp:
             self._load_threats_data()
         elif str(tab_name).lower() == "quarantine":
             self._load_quarantine_data()
+        elif str(tab_name).lower() in ("cleanup", "junk", "temp"):
+            self._load_cleanup_tab_data()
         elif str(tab_name).lower() == "activity":
             self._load_activity_data()
 
@@ -802,7 +965,9 @@ class ControlCenterApp:
             return
 
         def on_prog(cur, total, path):
-            pass
+            pct = (cur / total * 100.0) if total > 0 else 0
+            fname = os.path.basename(path)
+            self.root.after(0, lambda: self._update_cleanup_progress(pct, cur, total, fname))
 
         def on_done(res):
             self.root.after(0, lambda: self._on_cleanup_finished(res))
@@ -810,9 +975,121 @@ class ControlCenterApp:
         self.core.run_cleanup_now(on_progress=on_prog, on_complete=on_done)
         messagebox.showinfo("Cleanup In Progress", "Temporary and junk file cleanup is running in the background.")
 
+    def _trigger_cleanup_tab_action(self):
+        confirm = messagebox.askyesno(
+            "Ghost OS — Windows Temp / Junk Cleanup",
+            "Clean stale temporary and junk files (>24 hours old) across Windows Temp folders?\n\n"
+            "Active and locked files will be skipped safely."
+        )
+        if not confirm:
+            return
+
+        if hasattr(self, "btn_cleanup_clean_now"):
+            self.btn_cleanup_clean_now.config(state="disabled")
+        if hasattr(self, "cleanup_progress"):
+            self.cleanup_progress["value"] = 0
+        if hasattr(self, "lbl_cleanup_status"):
+            self.lbl_cleanup_status.config(text="Cleaning temporary files in background...")
+
+        def on_prog(cur, total, path):
+            pct = (cur / total * 100.0) if total > 0 else 0
+            fname = os.path.basename(path)
+            self.root.after(0, lambda: self._update_cleanup_progress(pct, cur, total, fname))
+
+        def on_done(res):
+            self.root.after(0, lambda: self._on_cleanup_finished(res))
+
+        self.core.run_cleanup_now(on_progress=on_prog, on_complete=on_done)
+
+    def _update_cleanup_progress(self, pct, cur, total, fname):
+        if hasattr(self, "cleanup_progress"):
+            self.cleanup_progress["value"] = pct
+        if hasattr(self, "lbl_cleanup_status"):
+            self.lbl_cleanup_status.config(text=f"Cleaning ({cur}/{total}): {fname}")
+
+    def _load_cleanup_tab_data(self):
+        try:
+            dry_run = getattr(self.core.safety, "dry_run", False)
+            if hasattr(self, "lbl_cleanup_policy_mode"):
+                self.lbl_cleanup_policy_mode.config(
+                    text="DRY RUN" if dry_run else "LIVE (>24h)",
+                    foreground=ACCENT_YELLOW if dry_run else ACCENT_GREEN
+                )
+
+            events = self.core.db_mgr.get_recent_cleanup_events(limit=40)
+            if hasattr(self, "tree_cleanup_hist"):
+                self.for_each_clear_tree(self.tree_cleanup_hist)
+
+            total_space = 0.0
+            total_runs = len(events)
+            last_run_time = "Never"
+
+            if events:
+                last_ev = events[0]
+                ts = str(last_ev.get("timestamp", ""))
+                last_run_time = ts.replace("T", " ")[:19] if ts else "Never"
+
+            for ev in events:
+                is_dry = bool(ev.get("dry_run", 0))
+                mode_str = "DRY RUN" if is_dry else "LIVE"
+                sp = float(ev.get("space_recovered_mb", 0.0))
+                if not is_dry:
+                    total_space += sp
+                t_str = str(ev.get("timestamp", "")).replace("T", " ")[:19]
+                dur = ev.get("duration_seconds")
+                dur_str = f"{dur:.2f}s" if dur is not None else "-"
+
+                if hasattr(self, "tree_cleanup_hist"):
+                    self.tree_cleanup_hist.insert("", "end", values=(
+                        t_str,
+                        mode_str,
+                        f"{sp:.2f} MB",
+                        ev.get("files_removed", 0),
+                        ev.get("dirs_removed", 0),
+                        ev.get("files_skipped_in_use", 0),
+                        ev.get("files_skipped_new", 0),
+                        dur_str
+                    ))
+
+            if hasattr(self, "lbl_cleanup_total_cleaned"):
+                self.lbl_cleanup_total_cleaned.config(text=f"{total_space:.1f} MB ({total_runs} runs)")
+            if hasattr(self, "lbl_cleanup_last_run"):
+                self.lbl_cleanup_last_run.config(text=last_run_time)
+
+            self._refresh_cleanup_preview_async()
+        except Exception as e:
+            logger.debug(f"Failed to load cleanup tab data: {e}")
+
+    def _refresh_cleanup_preview_async(self):
+        def worker():
+            try:
+                prev = self.core.preview_cleanup()
+                cnt = prev.get("count", 0)
+                sz = prev.get("size_mb", 0.0)
+                text = f"{sz:.1f} MB ({cnt} files)"
+                if self.root and self.root.winfo_exists() and hasattr(self, "lbl_cleanup_avail_size"):
+                    self.root.after(0, lambda: self.lbl_cleanup_avail_size.config(text=text))
+            except Exception as e:
+                logger.debug(f"Error in preview worker: {e}")
+        threading.Thread(target=worker, name="cleanup_preview_worker", daemon=True).start()
+
+    def _refresh_cleanup_tab(self):
+        if hasattr(self, "lbl_cleanup_status"):
+            self.lbl_cleanup_status.config(text="Scanning temporary locations for stale files...")
+        self._load_cleanup_tab_data()
+
     def _on_cleanup_finished(self, res):
+        if hasattr(self, "btn_cleanup_clean_now"):
+            self.btn_cleanup_clean_now.config(state="normal")
+        if hasattr(self, "cleanup_progress"):
+            self.cleanup_progress["value"] = 100
+
         self._update_overview_telemetry()
+        self._load_cleanup_tab_data()
+
         if res.get("error"):
+            if hasattr(self, "lbl_cleanup_status"):
+                self.lbl_cleanup_status.config(text=f"Notice: {res['error']}")
             messagebox.showwarning("Cleanup Notice", f"Cleanup notice: {res['error']}")
             return
 
@@ -822,6 +1099,10 @@ class ControlCenterApp:
         space = res.get("space_recovered_mb", 0.0)
         skipped_in_use = res.get("files_skipped_in_use", 0)
         skipped_new = res.get("files_skipped_new", 0)
+
+        status_line = f"Done: {removed} files removed, {dirs} folders pruned, {space} MB recovered ({skipped_in_use} in-use skipped)."
+        if hasattr(self, "lbl_cleanup_status"):
+            self.lbl_cleanup_status.config(text=status_line)
 
         if dry_run:
             msg = (
@@ -858,8 +1139,8 @@ class ControlCenterApp:
 
         dialog = tk.Toplevel(self.root)
         dialog.title("Ghost OS — Review Temporary & Junk Files")
-        dialog.geometry("820x540")
-        dialog.minsize(700, 440)
+        dialog.geometry("900x560")
+        dialog.minsize(760, 460)
         dialog.configure(bg=BG_DARK)
         dialog.transient(self.root)
         dialog.grab_set()
@@ -879,19 +1160,23 @@ class ControlCenterApp:
         tbl_frame = ttk.Frame(dialog, style="Card.TFrame", padding=10)
         tbl_frame.pack(fill="both", expand=True, padx=10, pady=4)
 
-        columns = ("name", "category", "size_mb", "age_h", "path")
+        columns = ("name", "category", "size_mb", "age", "reason", "status", "path")
         tree_review = ttk.Treeview(tbl_frame, columns=columns, show="headings", selectmode="browse")
         tree_review.heading("name", text="File Name")
         tree_review.heading("category", text="Category")
         tree_review.heading("size_mb", text="Size (MB)")
-        tree_review.heading("age_h", text="Age (Hours)")
+        tree_review.heading("age", text="Age")
+        tree_review.heading("reason", text="Reason")
+        tree_review.heading("status", text="Status")
         tree_review.heading("path", text="Full Path")
 
-        tree_review.column("name", width=180, anchor="w")
-        tree_review.column("category", width=100, anchor="center")
-        tree_review.column("size_mb", width=80, anchor="center")
-        tree_review.column("age_h", width=80, anchor="center")
-        tree_review.column("path", width=320, anchor="w")
+        tree_review.column("name", width=160, anchor="w")
+        tree_review.column("category", width=90, anchor="center")
+        tree_review.column("size_mb", width=70, anchor="center")
+        tree_review.column("age", width=80, anchor="center")
+        tree_review.column("reason", width=170, anchor="w")
+        tree_review.column("status", width=120, anchor="center")
+        tree_review.column("path", width=250, anchor="w")
 
         scroll_y = ttk.Scrollbar(tbl_frame, orient="vertical", command=tree_review.yview)
         tree_review.configure(yscrollcommand=scroll_y.set)
@@ -904,7 +1189,9 @@ class ControlCenterApp:
                 c.get("name"),
                 c.get("category"),
                 c.get("size_mb"),
-                c.get("age_hours"),
+                c.get("age_display", f"{c.get('age_hours', 0)}h"),
+                c.get("reason", "Stale temporary file"),
+                c.get("status", "SAFE TO REMOVE"),
                 c.get("path")
             ))
 
@@ -914,7 +1201,7 @@ class ControlCenterApp:
 
         def on_clean_now():
             dialog.destroy()
-            self._trigger_cleanup()
+            self._trigger_cleanup_tab_action()
 
         def on_open_folder():
             sel = tree_review.selection()
@@ -922,8 +1209,10 @@ class ControlCenterApp:
                 messagebox.showwarning("Open Location", "Select an item to view its folder.", parent=dialog)
                 return
             item_vals = tree_review.item(sel[0])["values"]
-            fp = str(item_vals[4])
+            fp = str(item_vals[6])
             self._open_file_in_explorer(fp)
+
+        tree_review.bind("<Double-1>", lambda e: on_open_folder())
 
         ttk.Button(btn_frame, text="🧹 Clean All Stale Items", style="Accent.TButton", command=on_clean_now).pack(side="left", padx=(0, 8))
         ttk.Button(btn_frame, text="📁 Open Location", style="Secondary.TButton", command=on_open_folder).pack(side="left", padx=(0, 8))

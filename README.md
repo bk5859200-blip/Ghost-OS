@@ -6,8 +6,8 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4?style=flat-square&logo=windows)](https://microsoft.com/windows)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue?style=flat-square&logo=python)](https://python.org)
-[![Tests](https://img.shields.io/badge/tests-108%20passed%20%28100%25%29-brightgreen?style=flat-square&logo=pytest)](https://pytest.org)
-[![Architecture](https://img.shields.io/badge/architecture-Local--First%20%2F%20Offline-9cf?style=flat-square)](https://github.com/bk5859200-blip/Ghost-OS)
+[![Tests](https://img.shields.io/badge/tests-108%20passed%20%28automated%29-brightgreen?style=flat-square&logo=pytest)](https://pytest.org)
+[![Architecture](https://img.shields.io/badge/architecture-Local--First-9cf?style=flat-square)](https://github.com/bk5859200-blip/Ghost-OS)
 [![Security Gate](https://img.shields.io/badge/safety-SafetyEngine%20Guarded-orange?style=flat-square)](#-security-model)
 
 <br/>
@@ -22,9 +22,9 @@
 
 ---
 
-Ghost OS is an open-source, local-first background security guardian and system maintenance application designed specifically for Windows. It operates silently in the background alongside your primary antivirus (such as Microsoft Defender), adding continuous behavioral observation, multi-signal threat detection, an isolated quarantine vault, and automated stale temporary-file cleanup — all without disrupting everyday desktop usage.
+Ghost OS is an open-source, local-first background security guardian and system maintenance application designed specifically for Windows. It operates silently in the background alongside your primary antivirus (such as Microsoft Defender), adding continuous behavioral observation, multi-signal threat detection, an isolated quarantine vault, and automated stale temporary-file cleanup — without disrupting everyday desktop usage.
 
-Unlike heavyweight enterprise agents or black-box utilities, Ghost OS is completely transparent and explainable. Every risk assessment is mapped to concrete observable signals (Authenticode digital signatures, publisher reputation, Defender CLI scans, naming anomalies, and behavioral diffs). Ghost OS never uploads your data to the cloud, never terminates running processes abruptly, and never deletes files without explicit authorization or safety gate clearance.
+Ghost OS is designed for explainability and local operation. Every risk assessment is mapped to observable signals (Authenticode digital signatures, publisher reputation, Defender CLI scans, naming anomalies, and behavioral diffs). Core monitoring, telemetry logging, and security operations execute locally on your machine, avoiding abrupt process termination during cleanup and gating destructive actions behind explicit authorization and safety controls.
 
 ---
 
@@ -35,10 +35,10 @@ Unlike heavyweight enterprise agents or black-box utilities, Ghost OS is complet
 * **🎯 5-Tier Risk Classification** — Strictly separates `CLEAN`, `LOW_RISK`, `SUSPICIOUS`, `THREAT`, and `CONFIRMED_MALWARE` so ordinary downloads (e.g. Spotify, Python installers) are never mislabeled as malware.
 * **🗃️ Quarantine Vault** — Safely isolates suspicious files into a secure vault with SHA-256 hash verification and original-path restoration.
 * **🧹 Windows Temp & Junk Cleaner** — Safely discovers and removes stale temporary files (`>24h`) across `%TEMP%`, `%TMP%`, `%WINDIR%\Temp`, and `%LOCALAPPDATA%\CrashDumps` without killing active processes.
-* **🔔 Actionable Windows Notifications** — Native Windows Action Center toast alerts with interactive action buttons (`Quarantine`, `Delete`, `Let It Be`).
+* **🔔 Actionable Windows Notifications** — Native Windows Action Center toast alerts with interactive action buttons (`Quarantine`, `Leave it alone`, `View details`).
 * **🖥️ Native Desktop Control Center** — Responsive dark-themed Tkinter desktop interface with 8 dedicated management tabs.
 * **🔒 SafetyEngine Protection** — Authoritative safety gate that strictly protects Windows system directories (`C:\Windows\System32`), critical system processes (`lsass.exe`, `explorer.exe`), and enforces `dry_run` mode.
-* **📊 100% Local SQLite Telemetry** — Persistent audit logging of security detections, process lifecycles, and cleanup operations stored strictly on your local disk.
+* **📊 Local SQLite Telemetry** — Persistent audit logging of security detections, process lifecycles, and cleanup operations stored locally on disk.
 * **📦 Production Packaging** — Clean PyInstaller standalone executable (`GhostOS.exe`) and Inno Setup installer (`GhostOS-Setup.exe`).
 
 ---
@@ -63,7 +63,7 @@ Unlike heavyweight enterprise agents or black-box utilities, Ghost OS is complet
 - [Project Structure](#-project-structure)
 - [Configuration](#-configuration)
 - [Windows Startup](#-windows-startup)
-- [Privacy & Offline Guarantee](#-privacy)
+- [Privacy & Local-First Design](#-privacy--local-first-design)
 - [Limitations](#-limitations)
 - [Roadmap](#-roadmap)
 - [Contributing](#-contributing)
@@ -126,11 +126,11 @@ Ghost OS enforces a strict 5-tier classification hierarchy to eliminate alarm fa
 
 | Classification | Criteria | Action Taken | User Prompt |
 | :--- | :--- | :--- | :--- |
-| **`CLEAN`** | Score 0–14. Verified digital signature, benign location, clean Defender scan. | Logged silently | None |
-| **`LOW_RISK`** | Score 15–29. Unsigned executable, newly downloaded installer in `Downloads`. | Logged silently in telemetry | None |
-| **`SUSPICIOUS`** | Score 30–59. Disguised double-extension, executable in temp directory, anomaly signals. | Logged, elevated to Review | Action Center notification (`ASK_USER`) |
-| **`THREAT`** | Score 60–84. Script execution in hidden folder, multiple high-risk indicators. | Logged, user alert dispatched | High-priority notification (`ASK_USER`) |
-| **`CONFIRMED_MALWARE`**| Score 85–100 or Microsoft Defender confirmed detection (`DEFENDER_THREAT`). | Quarantined / user alert | Critical security alert popup |
+| **`CLEAN`** | Score 0–19. Verified digital signature, benign location, clean Defender scan. | Logged silently in telemetry (`LOG`) | None |
+| **`LOW_RISK`** | Score 20–39. Unsigned executable, newly downloaded installer in `Downloads`. | Logged silently in telemetry (`LOG`) | None |
+| **`SUSPICIOUS`** | Score 40–59. Disguised double-extension, executable in temp directory, anomaly signals. | Logged, elevated for review (`NOTIFY`) | Action Center notification (`NOTIFY`) |
+| **`THREAT`** | Score 60–79. Script execution in hidden folder, multiple high-risk indicators. | Action recommended (`ASK_USER`) | High-priority notification (`ASK_USER`) |
+| **`CONFIRMED_MALWARE`**| Score 80–100 or Microsoft Defender confirmed detection (`DEFENDER_THREAT`). | Immediate user alert / quarantine (`ASK_USER`) | Critical security alert popup / toast |
 
 ---
 
@@ -174,13 +174,14 @@ Resolve %TEMP%, %TMP%, %WINDIR%\Temp, %LOCALAPPDATA%\CrashDumps
 * **Age Threshold Filter**: Skips any temporary file modified within the last 24 hours to prevent interfering with active application installers or running background sessions.
 * **Locked File Resilience**: Handles `PermissionError` and `OSError` without force-terminating running processes; locked files are safely bypassed and recorded.
 * **Empty Directory Pruning**: Cleans leftover empty subdirectories inside temporary folders while strictly preserving the root directory itself.
+* **Dry-Run Safety**: In default policy configuration, cleanup runs in `dry_run` simulation mode to display proposed space recovery safely before live deletions.
 * **Clean Separation**: Cleanup is strictly a storage hygiene feature and is never routed through threat detection pipelines.
 
 ---
 
 ### 6. 🔔 Windows Action Center Notifications
 * **Native Toast Integration**: Dispatches native Windows 10 and 11 toast notifications via the Windows Notification Subsystem (`windows_toasts`).
-* **Interactive Quick Actions**: Security toasts provide inline buttons allowing users to `🛡 Quarantine`, `🗑 Delete`, or `✕ Let It Be (Ignore)` with a single click.
+* **Interactive Quick Actions**: Security toasts provide inline buttons allowing users to `Quarantine`, `Leave it alone`, or `View details`. If toast display is unavailable, an in-app security alert dialog is presented as a fallback.
 * **Anti-Spam Suppression**: Features configurable cooldown timers (`cooldown_seconds: 120`) and aggregation windows (`aggregate_window_seconds: 300`) to prevent duplicate notification storms.
 
 ---
@@ -213,7 +214,7 @@ Ghost OS adheres to 10 foundational security principles:
 6. **Explicit User Authorization**: Destructive operations require explicit confirmation through interactive toast buttons or Control Center dialogs.
 7. **Safe Dry-Run Default**: `policy.yaml` enables `safety.dry_run: true` by default so users can evaluate actions safely before live modifications.
 8. **Zero Console Flashing**: All background process calls (`MpCmdRun.exe`, PowerShell, Explorer) utilize `CREATE_NO_WINDOW` and hidden process creation flags to eliminate command prompt popups.
-9. **Local-Only Data Storage**: Telemetry, events, and metrics are written exclusively to a local SQLite database (`data/telemetry.db`).
+9. **Local Data Storage**: Telemetry, events, and metrics are written to a local SQLite database (`data/telemetry.db`).
 10. **Defensive Scope**: Ghost OS is designed for endpoint observation, user alerting, and system maintenance. It does not install kernel filter drivers or intercept raw network packets.
 
 ---
@@ -287,7 +288,7 @@ ghost_os_main.py (SingleInstance Guard & Startup Bootstrap)
 3. Run `GhostOS.exe`.
 
 > [!NOTE]
-> Release packages are published through GitHub Releases. For building from source, see [Developer Setup](#-developer-setup).
+> Release packages are provided through GitHub Releases when published. For building from source, see [Developer Setup](#-developer-setup).
 
 ---
 
@@ -331,10 +332,14 @@ pytest tests/ -v
 ======================= 108 passed in 88.60s (0:01:28) ========================
 ```
 
+* **Current automated test validation**: 108 tests passing.
 * **Cleaner Unit Tests** (`tests/test_cleaner.py`): Verifies dynamic root discovery, age filtering (>24h vs new), locked-file resilience, empty directory pruning, and dry-run execution.
 * **Threat Classification Acceptance Tests** (`tests/test_threat_distinction_acceptance.py`): Tests 7 real-world fixtures to verify that clean and unsigned software are never flagged as confirmed malware.
 * **Pipeline Integration Tests** (`tests/test_integration_pipeline.py`): Validates file arrival -> Threat Sentinel -> Decision Engine -> Quarantine -> SHA-256 restore -> DB logging.
 * **UI Tests** (`tests/test_ui.py`): Validates Control Center instantiation, tab switching, and hide-to-tray lifecycle.
+
+> [!NOTE]
+> Automated unit and integration tests run in isolated environments to test logic correctness. Live Windows runtime behavior across various operating system configurations is evaluated separately during release testing.
 
 ---
 
@@ -481,12 +486,12 @@ $$\text{HKCU}\\Software\\Microsoft\\Windows\\CurrentVersion\\Run$$
 
 ---
 
-## 🔒 Privacy
+## 🔒 Privacy & Local-First Design
 
-Ghost OS is built with a strict **Local-First, Zero-Cloud** philosophy:
-* **Zero Telemetry Uploads**: Ghost OS does not send your files, metadata, telemetry, or hardware statistics to any remote cloud servers.
-* **Local Database Storage**: All monitoring events, process history, and metrics remain exclusively in `data/telemetry.db` on your local disk.
-* **No Third-Party Analytics**: No third-party trackers, external analytics SDKs, or advertising libraries are embedded.
+Ghost OS is designed with local-first privacy in mind:
+* **Local Operation**: Core monitoring, telemetry logging, and threat scoring execute locally on your machine.
+* **Local Database Storage**: Monitoring events, process history, and metrics are stored locally in `data/telemetry.db`.
+* **No Third-Party Analytics**: Ghost OS does not embed advertising frameworks or commercial tracking SDKs.
 
 ---
 

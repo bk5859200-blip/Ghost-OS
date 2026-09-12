@@ -26,7 +26,7 @@ The system is built for explainability and local operation. Every risk assessmen
 
 | Capability | Description |
 |---|---|
-| Continuous background monitoring | Watches `Downloads`, `Desktop`, and `Temp`; monitors running processes; tracks live CPU, RAM, and disk metrics. |
+| Continuous background monitoring | Watches `Downloads`, `Desktop`, and `Temp`; monitors running processes; tracks live CPU, RAM. |
 | Explainable threat detection | Combines local rule heuristics, Microsoft Defender (`MpCmdRun.exe`), and Authenticode verification to produce a 0–100 risk score. |
 | Five-tier risk classification | Separates `CLEAN`, `LOW_RISK`, `SUSPICIOUS`, `THREAT`, and `CONFIRMED_MALWARE` so ordinary downloads are never mislabeled as malware. |
 | Quarantine vault | Isolates suspicious files with SHA-256 hash verification and original-path restoration. |

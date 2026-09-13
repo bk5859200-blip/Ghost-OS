@@ -32,6 +32,7 @@ watch_folders:
 cleanup:
   enabled: true
   require_confirmation: true   # if true, cleanup is proposed via notification, not run silently
+  auto_scan_interval_seconds: 300 # periodic background evaluation interval (5 minutes)
   stale_installer_days: 30
   stale_temp_days: 14
 

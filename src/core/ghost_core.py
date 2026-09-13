@@ -663,7 +663,7 @@ class GhostCore:
         Runs every 5 minutes in the background, evaluates disposable locations, and
         triggers an actionable notification with deduplication.
         """
-        interval = self.config.get("cleanup", {}).get("check_interval_seconds", 300)
+        interval = self.config.get("cleanup", {}).get("auto_scan_interval_seconds", self.config.get("cleanup", {}).get("check_interval_seconds", 300))
         last_notified_hash = None
 
         while not self._stop_event.is_set():
